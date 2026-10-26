@@ -195,6 +195,7 @@ Add `--raw` for the full JSON payload. Other flags: `--page-number`,
 | Transport | stdio only. | stdio plus bearer-gated streamable HTTP on `127.0.0.1:8765/mcp` by default. |
 | Tracing / redaction | Python logging. | `tracing` to stderr with an `RUST_LOG` filter; no credential, token, or `Authorization` value appears in a log statement. |
 | AGPL attribution | AGPL-3.0-or-later, Trail of Bits. | Same license; this port credits Trail of Bits in this README and ships the upstream license text. |
+| Hacker-side surface | none. | **Planned, not shipped:** seven read-only `/hackers/*` tools (program lookup, scope, exclusions, weaknesses, my reports, hacktivity) behind a second credential class — see [ADR-0008](docs/adr/0008-hacker-side-surface.md) and [docs/hacker-api-surface.md](docs/hacker-api-surface.md), which also records what was rejected and why. |
 
 ## Development
 
