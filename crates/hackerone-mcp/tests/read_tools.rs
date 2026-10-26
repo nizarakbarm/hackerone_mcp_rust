@@ -2,7 +2,11 @@
 //! method/path/query, body passthrough, upstream normalization, typed failures.
 
 use hackerone_api::{Client, Error};
-use hackerone_mcp::tool::{self, ToolName, dispatch, scope::ProgramScope};
+use hackerone_mcp::{
+    Clients,
+    config::Config,
+    tool::{self, ToolName, dispatch, scope::ProgramScope},
+};
 use serde_json::{Map, Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -13,6 +17,17 @@ fn client(server: &MockServer) -> Client {
     Client::new("user", "token")
         .expect("client")
         .with_base_url(server.uri())
+}
+
+/// Class clients as the server builds them: customer credentials only.
+fn clients(server: &MockServer) -> Clients {
+    Clients::from_config(&Config {
+        api_username: Some("user".to_owned()),
+        api_token: Some("token".to_owned()),
+        base_url: Some(server.uri()),
+        ..Config::default()
+    })
+    .expect("clients")
 }
 
 /// One configured program, as the server shell holds it.
@@ -72,7 +87,7 @@ async fn get_report_returns_the_raw_body() {
         .await;
 
     let value = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(None),
         "get_report",
         &args(json!({"report_id": 7})),
@@ -88,7 +103,7 @@ async fn get_report_rejects_a_missing_or_non_integer_id() {
     let server = MockServer::start().await;
     for arguments in [json!({}), json!({"report_id": "7"})] {
         let error = dispatch(
-            &client(&server),
+            &clients(&server),
             &scope(None),
             "get_report",
             &args(arguments),
@@ -151,7 +166,7 @@ async fn custom_field_values_are_normalized_like_upstream() {
         .await;
 
     let value = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(None),
         "get_report_custom_field_values",
         &args(json!({"report_id": 7})),
@@ -229,7 +244,7 @@ async fn malformed_report_payloads_are_decode_errors_naming_the_path() {
             .await;
 
         let error = dispatch(
-            &client(&server),
+            &clients(&server),
             &scope(None),
             "get_report_custom_field_values",
             &args(json!({"report_id": 7})),
@@ -255,7 +270,7 @@ async fn query_reports_sends_the_builder_query_for_the_configured_program() {
         .await;
 
     let value = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(Some("acme")),
         "query_reports",
         &args(json!({
@@ -300,7 +315,7 @@ async fn query_reports_sends_the_builder_query_for_the_configured_program() {
 async fn query_reports_without_a_handle_fails_before_any_request() {
     let server = MockServer::start().await;
     let error = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(None),
         "query_reports",
         &args(json!({})),
@@ -348,7 +363,7 @@ async fn list_scopes_follows_links_next_and_then_lists_scopes() {
         .await;
 
     let value = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(Some("acme")),
         "list_scopes",
         &args(json!({"scope_id_gt": 10, "page_size": 5})),
@@ -430,10 +445,10 @@ async fn one_scope_caches_the_program_id_across_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = client(&server);
+    let clients = clients(&server);
     let program = scope(Some("acme"));
     for _ in 0..2 {
-        dispatch(&client, &program, "list_scopes", &args(json!({})))
+        dispatch(&clients, &program, "list_scopes", &args(json!({})))
             .await
             .expect("list_scopes");
     }
@@ -443,7 +458,7 @@ async fn one_scope_caches_the_program_id_across_tool_calls() {
 async fn missing_handle_is_reported_before_the_scope_request() {
     let server = MockServer::start().await;
     let error = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(None),
         "list_scopes",
         &args(json!({})),
@@ -468,7 +483,7 @@ async fn unknown_handle_ends_in_program_not_found() {
         .await;
 
     let error = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(Some("nobody")),
         "list_scopes",
         &args(json!({})),
@@ -482,7 +497,7 @@ async fn unknown_handle_ends_in_program_not_found() {
 async fn router_rejects_unknown_tool_names_without_a_request() {
     let server = MockServer::start().await;
     let error = dispatch(
-        &client(&server),
+        &clients(&server),
         &scope(None),
         "totally_unknown",
         &args(json!({})),
@@ -498,7 +513,7 @@ async fn router_rejects_unknown_tool_names_without_a_request() {
 
 #[test]
 fn wired_tools_are_all_thirteen_in_upstream_order() {
-    let names: Vec<_> = tool::WIRED.iter().map(|(tool, _)| tool.name()).collect();
+    let names: Vec<_> = tool::WIRED.iter().map(|(tool, _, _)| tool.name()).collect();
     assert_eq!(
         names,
         ToolName::ALL

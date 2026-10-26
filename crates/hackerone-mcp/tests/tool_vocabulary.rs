@@ -2,7 +2,7 @@
 //! validation errors, schema parity with upstream, and the program-scope
 //! guarantee from ADR-0001 (wart fix 6).
 
-use hackerone_api::Error;
+use hackerone_api::{CredentialClass, Error};
 use hackerone_mcp::tool::{
     self, ArrayFilterKind, LIST_SCOPES_DATE_FILTERS, QUERY_REPORT_ARRAY_FILTERS,
     QUERY_REPORT_DATE_FILTERS, REPORT_STATES, SEVERITIES, SORT_FIELDS, SORT_ORDERS, ToolName,
@@ -76,8 +76,8 @@ fn schemas_match_upstream_byte_for_byte() {
         let name = entry["name"].as_str().expect("fixture tool name");
         let tool = ToolName::from_wire(name).expect("fixture tool exists");
         assert_eq!(
-            tool.schema(),
-            entry["inputSchema"],
+            serde_json::to_string(&tool.schema()).expect("serialize schema"),
+            serde_json::to_string(&entry["inputSchema"]).expect("serialize fixture"),
             "schema drift for {name}"
         );
     }
@@ -526,13 +526,21 @@ fn every_tool_variant_is_wired_exactly_once_in_upstream_order() {
     for variant in ToolName::ALL {
         let count = tool::WIRED
             .iter()
-            .filter(|(wired, _)| *wired == variant)
+            .filter(|(wired, _, _)| *wired == variant)
             .count();
         assert_eq!(count, 1, "{} is not wired exactly once", variant.name());
     }
 
-    let wired: Vec<ToolName> = tool::WIRED.iter().map(|(tool, _)| *tool).collect();
+    let wired: Vec<ToolName> = tool::WIRED.iter().map(|(tool, _, _)| *tool).collect();
     assert_eq!(wired, ToolName::ALL.to_vec());
+}
+
+#[test]
+fn every_shipped_tool_declares_the_customer_class() {
+    for (tool, _, class) in tool::WIRED {
+        assert_eq!(class, CredentialClass::Customer, "{}", tool.name());
+        assert_eq!(tool.class(), class, "{}", tool.name());
+    }
 }
 
 #[test]

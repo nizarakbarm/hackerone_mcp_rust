@@ -12,6 +12,38 @@ use thiserror::Error;
 /// Default HackerOne API root.
 pub const DEFAULT_BASE_URL: &str = "https://api.hackerone.com/v1";
 
+/// Which token pair a tool spends (ADR-0008).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CredentialClass {
+    /// Program/org token: `HACKERONE_API_USERNAME` + `HACKERONE_API_TOKEN`.
+    Customer,
+    /// Hacker token: `HACKERONE_HACKER_API_USERNAME` + `HACKERONE_HACKER_API_TOKEN`.
+    Hacker,
+}
+
+impl CredentialClass {
+    /// Lowercase class name, as it appears in error messages.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Customer => "customer",
+            Self::Hacker => "hacker",
+        }
+    }
+
+    /// The username and token environment variables that must both be set.
+    #[must_use]
+    pub const fn env_vars(self) -> [&'static str; 2] {
+        match self {
+            Self::Customer => ["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"],
+            Self::Hacker => [
+                "HACKERONE_HACKER_API_USERNAME",
+                "HACKERONE_HACKER_API_TOKEN",
+            ],
+        }
+    }
+}
+
 /// Failure of a HackerOne API call, one variant per cause (ADR-0003).
 #[derive(Debug, Error)]
 pub enum Error {
@@ -56,6 +88,17 @@ pub enum Error {
     /// `HACKERONE_PROGRAM_HANDLE` was never set.
     #[error("missing program handle")]
     MissingProgramHandle,
+    /// The requested tool's credential class has no complete token pair.
+    #[error(
+        "missing {} credential: set {} and {}",
+        .class.as_str(),
+        .class.env_vars()[0],
+        .class.env_vars()[1]
+    )]
+    MissingCredential {
+        /// Class the tool needs (ADR-0008).
+        class: CredentialClass,
+    },
 }
 
 /// Authenticated HackerOne REST client.

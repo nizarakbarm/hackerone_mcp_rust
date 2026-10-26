@@ -23,9 +23,11 @@ pub mod update_cves;
 pub mod update_reference;
 pub mod update_title;
 
-use hackerone_api::{Client, Error};
+use hackerone_api::{CredentialClass, Error};
 use serde::de::Error as _;
 use serde_json::{Map, Value};
+
+use crate::Clients;
 
 use scope::ProgramScope;
 
@@ -96,75 +98,111 @@ impl ToolName {
     pub fn schema(self) -> Value {
         schema::schema(self)
     }
+
+    /// Credential class this tool spends, taken from the registry so there is
+    /// exactly one place to declare it (ADR-0008).
+    ///
+    /// # Panics
+    ///
+    /// If the tool is missing from [`WIRED`]; the registry test keeps every
+    /// variant wired exactly once.
+    #[must_use]
+    pub fn class(self) -> CredentialClass {
+        WIRED
+            .iter()
+            .find(|(tool, _, _)| *tool == self)
+            .map(|(_, _, class)| *class)
+            .expect("every ToolName is wired exactly once")
+    }
 }
 
 /// Tools whose `run` exists, in upstream order, with their advertised
-/// descriptions: the only tools `tools/list` may advertise. All thirteen are
-/// wired, so every name `ToolName` knows is also advertised and dispatchable.
-pub const WIRED: [(ToolName, &str); 13] = [
+/// descriptions and credential class: the only tools `tools/list` may
+/// advertise, and the authority `dispatch` uses to pick a client (ADR-0008).
+/// All thirteen are wired, so every name `ToolName` knows is also advertised
+/// and dispatchable.
+pub const WIRED: [(ToolName, &str, CredentialClass); 13] = [
     (
         ToolName::GetReport,
         "Fetch a single HackerOne report by ID.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::GetReportCustomFieldValues,
         "Fetch normalized custom field values currently set on a single report.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::CreateReport,
         "Import a known vulnerability report into the configured program.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::QueryReports,
         "Query paginated HackerOne reports for the configured program using common \
          filters, sort, and pagination.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::ListScopes,
         "List structured scopes for the configured program using common filters and \
          pagination.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::ChangeState,
         "Change the state of a report (e.g. triaged, resolved, not-applicable, \
          duplicate, informative, spam).",
+        CredentialClass::Customer,
     ),
     (
         ToolName::CreateComment,
         "Add a comment to a report. Can be internal (team-only) or external (visible \
          to reporter).",
+        CredentialClass::Customer,
     ),
-    (ToolName::UpdateTitle, "Update the title of a report."),
+    (
+        ToolName::UpdateTitle,
+        "Update the title of a report.",
+        CredentialClass::Customer,
+    ),
     (
         ToolName::UpdateReference,
         "Update the external reference (e.g. Jira ticket URL) on a report.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::UpdateCves,
         "Update CVE identifiers associated with a report.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::EscalateReport,
         "Escalate a report for higher-priority attention.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::RemoveEscalation,
         "Remove an escalation from a report.",
+        CredentialClass::Customer,
     ),
     (
         ToolName::UpdateCustomFieldValues,
         "Set custom field values on a report.",
+        CredentialClass::Customer,
     ),
 ];
 
-/// Route one `tools/call` to the tool that owns its body (ADR-0007).
+/// Route one `tools/call` to the tool that owns its body (ADR-0007), spending
+/// the client for the tool's credential class (ADR-0008).
 ///
 /// # Errors
 ///
-/// Every failure a tool body produces, plus [`Error::Validation`] for an unknown
-/// or not-yet-wired tool name.
+/// Every failure a tool body produces, [`Error::MissingCredential`] when the
+/// tool's class has no configured token pair, plus [`Error::Validation`] for an
+/// unknown tool name.
 pub async fn dispatch(
-    client: &Client,
+    clients: &Clients,
     scope: &ProgramScope,
     name: &str,
     args: &Map<String, Value>,
@@ -175,6 +213,10 @@ pub async fn dispatch(
             reason: format!("unknown tool: {name}"),
         });
     };
+    let class = tool.class();
+    let client = clients
+        .for_class(class)
+        .ok_or(Error::MissingCredential { class })?;
     match tool {
         ToolName::GetReport => get_report::run(client, args).await,
         ToolName::GetReportCustomFieldValues => {

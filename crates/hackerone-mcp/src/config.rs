@@ -22,6 +22,9 @@ const ENV_HOME: &str = "HOME";
 pub struct Config {
     pub api_username: Option<String>,
     pub api_token: Option<String>,
+    /// Hacker-side token pair (ADR-0008); independent of the customer pair.
+    pub hacker_api_username: Option<String>,
+    pub hacker_api_token: Option<String>,
     pub program_handle: Option<String>,
     pub base_url: Option<String>,
     pub bind: Option<String>,
@@ -43,6 +46,8 @@ impl Config {
         fill!(
             api_username,
             api_token,
+            hacker_api_username,
+            hacker_api_token,
             program_handle,
             base_url,
             bind,
@@ -68,6 +73,8 @@ impl From<&Flags> for Config {
         Self {
             api_username: flags.api_username.clone(),
             api_token: flags.api_token.clone(),
+            hacker_api_username: None,
+            hacker_api_token: None,
             program_handle: flags.program_handle.clone(),
             base_url: flags.base_url.clone(),
             bind: flags.bind.clone(),
@@ -113,6 +120,8 @@ where
     config.fill_from(Config {
         api_username: var("HACKERONE_API_USERNAME"),
         api_token: var("HACKERONE_API_TOKEN"),
+        hacker_api_username: var("HACKERONE_HACKER_API_USERNAME"),
+        hacker_api_token: var("HACKERONE_HACKER_API_TOKEN"),
         program_handle: var("HACKERONE_PROGRAM_HANDLE"),
         base_url: var("HACKERONE_API_BASE_URL"),
         bind: None,
@@ -147,7 +156,10 @@ fn read_file(path: &Path) -> Result<Config, ConfigError> {
         reason: err.to_string(),
     })?;
     let config = file.into_config();
-    if config.api_token.is_some() || config.http_token.is_some() {
+    if config.api_token.is_some()
+        || config.hacker_api_token.is_some()
+        || config.http_token.is_some()
+    {
         check_secret_permissions(path)?;
     }
     Ok(config)
@@ -180,12 +192,15 @@ fn check_secret_permissions(_path: &Path) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// TOML shape: `[api]` and `[http]` only; typos fail instead of falling back.
+/// TOML shape: `[api]`, `[hacker_api]` and `[http]` only; typos fail instead
+/// of falling back.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FileConfig {
     #[serde(default)]
     api: ApiSection,
+    #[serde(default)]
+    hacker_api: HackerApiSection,
     #[serde(default)]
     http: HttpSection,
 }
@@ -195,12 +210,21 @@ impl FileConfig {
         Config {
             api_username: self.api.username,
             api_token: self.api.token,
+            hacker_api_username: self.hacker_api.username,
+            hacker_api_token: self.hacker_api.token,
             program_handle: self.api.program_handle,
             base_url: self.api.base_url,
             bind: self.http.bind,
             http_token: self.http.token,
         }
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HackerApiSection {
+    username: Option<String>,
+    token: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -279,6 +303,10 @@ base_url = "https://file.example"
 [http]
 bind = "127.0.0.1:9000"
 token = "file-http-token"
+
+[hacker_api]
+username = "file-hacker-user"
+token = "file-hacker-token"
 "#;
 
     fn chmod(path: &Path, mode: u32) {
@@ -304,6 +332,14 @@ token = "file-http-token"
 
         assert_eq!(config.api_username.as_deref(), Some("file-user"));
         assert_eq!(config.api_token.as_deref(), Some("file-token"));
+        assert_eq!(
+            config.hacker_api_username.as_deref(),
+            Some("file-hacker-user")
+        );
+        assert_eq!(
+            config.hacker_api_token.as_deref(),
+            Some("file-hacker-token")
+        );
         assert_eq!(config.program_handle.as_deref(), Some("file-program"));
         assert_eq!(config.base_url.as_deref(), Some("https://file.example"));
         assert_eq!(config.bind.as_deref(), Some("127.0.0.1:9000"));
@@ -435,5 +471,85 @@ token = "file-http-token"
         assert_eq!(config.api_username.as_deref(), Some("env-user"));
         assert_eq!(config.api_token.as_deref(), Some("env-token"));
         assert_eq!(config.program_handle, None);
+    }
+
+    #[test]
+    fn hacker_fields_layer_independently_of_customer_fields() {
+        let dir = TempDir::new("hacker-merge");
+        let path = dir.write(
+            "hackerone.toml",
+            "[api]\nusername = \"file-user\"\ntoken = \"file-token\"\n\
+             [hacker_api]\nusername = \"file-hacker-user\"\n",
+        );
+        chmod(&path, 0o600);
+
+        let vars = env(&[
+            ("HACKERONE_HACKER_API_TOKEN", "env-hacker-token"),
+            ("HACKERONE_API_BASE_URL", "https://env.example"),
+        ]);
+        let config = load_with(
+            &dir,
+            Flags {
+                config: Some(path),
+                ..Flags::default()
+            },
+            &vars,
+        )
+        .expect("load layered config");
+
+        assert_eq!(config.api_username.as_deref(), Some("file-user"));
+        assert_eq!(config.api_token.as_deref(), Some("file-token"));
+        assert_eq!(
+            config.hacker_api_username.as_deref(),
+            Some("file-hacker-user")
+        );
+        assert_eq!(config.hacker_api_token.as_deref(), Some("env-hacker-token"));
+        assert_eq!(config.base_url.as_deref(), Some("https://env.example"));
+    }
+
+    #[test]
+    fn unknown_key_in_hacker_api_is_an_error() {
+        let dir = TempDir::new("hacker-unknown");
+        let path = dir.write("hackerone.toml", "[hacker_api]\ntokn = \"typo\"\n");
+
+        let err = load_with(
+            &dir,
+            Flags {
+                config: Some(path),
+                ..Flags::default()
+            },
+            &HashMap::new(),
+        )
+        .expect_err("unknown key must fail");
+
+        let ConfigError::Parse { reason, .. } = &err else {
+            panic!("expected parse error, got {err:?}");
+        };
+        assert!(reason.contains("tokn"), "error must name key: {reason}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hacker_token_file_with_group_or_other_bits_is_refused() {
+        let dir = TempDir::new("hacker-perms");
+        let path = dir.write(
+            "hackerone.toml",
+            "[hacker_api]\ntoken = \"hacker-secret\"\n",
+        );
+        chmod(&path, 0o644);
+
+        let err = load_with(
+            &dir,
+            Flags {
+                config: Some(path.clone()),
+                ..Flags::default()
+            },
+            &HashMap::new(),
+        )
+        .expect_err("world-readable hacker secret must fail");
+        assert!(matches!(
+            err,
+            ConfigError::InsecurePermissions { mode: 0o644, .. }
+        ));
     }
 }

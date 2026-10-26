@@ -126,8 +126,8 @@ hackerone-mcp --transport http
   loopback address behind a TLS-terminating reverse proxy. `--bind` to a
   non-loopback address logs a warning at startup.
 - The upstream HackerOne credentials come from the configuration layers below,
-  not from the incoming `Authorization` header. One process serves one
-  HackerOne identity and one program.
+  not from the incoming `Authorization` header. One process serves one customer
+  identity, one optional hacker identity, and one program.
 
 ## Configuration
 
@@ -140,12 +140,19 @@ CLI flags: `--config`, `--api-username`, `--api-token`, `--program-handle`,
 
 | Variable | Meaning |
 |---|---|
-| `HACKERONE_API_USERNAME` | API identifier used as the HTTP Basic username. Required. |
-| `HACKERONE_API_TOKEN` | API token used as the HTTP Basic password. Required. |
+| `HACKERONE_API_USERNAME` | Customer (program-side) API identifier, HTTP Basic username. Required by the customer-side tools; when missing, those calls fail with `missing customer credential`. |
+| `HACKERONE_API_TOKEN` | Customer API token, HTTP Basic password. |
+| `HACKERONE_HACKER_API_USERNAME` | Hacker-side API identifier (`/v1/hackers/*`). Required only by hacker-class tools. |
+| `HACKERONE_HACKER_API_TOKEN` | Hacker-side API token. |
 | `HACKERONE_PROGRAM_HANDLE` | Program handle; required by `create_report`, `query_reports`, and `list_scopes`. |
-| `HACKERONE_API_BASE_URL` | API root, default `https://api.hackerone.com/v1`. |
+| `HACKERONE_API_BASE_URL` | API root for both credential classes, default `https://api.hackerone.com/v1`. |
 | `HACKERONE_MCP_HTTP_TOKEN` | Bearer token for `--transport http`; required there. |
 | `RUST_LOG` | `tracing` filter, default `info`. Logs always go to stderr. |
+
+All thirteen shipped tools spend the **customer** pair. A tool whose class has no
+configured pair is still advertised by `tools/list`; calling it returns
+`isError` with the missing environment variables named. Startup never requires
+credentials.
 
 Config file shape (unknown keys are rejected):
 
@@ -155,6 +162,10 @@ username = "your-api-username"
 token = "your-api-token"
 program_handle = "your-program-handle"
 # base_url = "https://api.hackerone.com/v1"
+
+[hacker_api]
+# username = "your-hacker-username"
+# token = "your-hacker-token"
 
 [http]
 # bind = "127.0.0.1:8765"
