@@ -1,0 +1,21 @@
+[workspace]
+members = ["crates/hackerone-api", "crates/hackerone-mcp"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.88"
+
+[workspace.dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+clap = { version = "4.5", features = ["derive"] }
+rmcp = { version = "3.7.0", default-features = false, features = ["server", "transport-io", "transport-streamable-http-server"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
