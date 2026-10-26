@@ -199,10 +199,11 @@ Add `--raw` for the full JSON payload. Other flags: `--page-number`,
 ## Development
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+./scripts/check.sh   # fmt + clippy -D warnings + workspace tests; CI runs exactly this
 ```
+
+API facts the tools depend on (auth, endpoints, `links.next`, rate limits, error body):
+[`docs/hackerone-api.md`](docs/hackerone-api.md). Decisions: [`docs/adr/`](docs/adr/).
 
 ## Security
 
