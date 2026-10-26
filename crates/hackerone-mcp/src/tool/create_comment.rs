@@ -5,7 +5,6 @@ use hackerone_api::{Client, Error};
 use serde_json::{Map, Value};
 
 use super::params;
-use crate::config::Config;
 
 /// `POST /reports/{report_id}/activities`.
 ///
@@ -14,11 +13,7 @@ use crate::config::Config;
 /// [`Error::Validation`] for a missing/non-integer `report_id`, a missing
 /// `message`, or a non-boolean `internal`, otherwise any error the client
 /// produced.
-pub async fn run(
-    client: &Client,
-    _config: &Config,
-    args: &Map<String, Value>,
-) -> Result<Value, Error> {
+pub async fn run(client: &Client, args: &Map<String, Value>) -> Result<Value, Error> {
     let report_id = super::report_id(args)?;
     let params = params::create_comment(args)?;
     client

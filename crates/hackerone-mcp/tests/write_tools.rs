@@ -3,7 +3,7 @@
 //! failures that must precede any request.
 
 use hackerone_api::{Client, Error};
-use hackerone_mcp::{config::Config, tool::dispatch};
+use hackerone_mcp::tool::{dispatch, scope::ProgramScope};
 use serde_json::{Map, Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -16,11 +16,9 @@ fn client(server: &MockServer) -> Client {
         .with_base_url(server.uri())
 }
 
-fn config(handle: Option<&str>) -> Config {
-    Config {
-        program_handle: handle.map(str::to_owned),
-        ..Config::default()
-    }
+/// One configured program, as the server shell holds it.
+fn scope(handle: Option<&str>) -> ProgramScope {
+    ProgramScope::new(handle.map(str::to_owned))
 }
 
 fn args(value: Value) -> Map<String, Value> {
@@ -72,7 +70,7 @@ async fn create_report_posts_the_program_scoped_body() {
 
     let value = dispatch(
         &client(&server),
-        &config(Some("acme")),
+        &scope(Some("acme")),
         "create_report",
         &args(json!({
             "title": "SQL injection",
@@ -98,7 +96,7 @@ async fn create_report_without_a_handle_fails_before_any_request() {
     let server = MockServer::start().await;
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "create_report",
         &args(json!({
             "title": "t",
@@ -135,7 +133,7 @@ async fn change_state_posts_the_state_change_body() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "change_state",
         &args(json!({
             "report_id": 7,
@@ -155,7 +153,7 @@ async fn change_state_rejects_an_unknown_state_before_any_request() {
     let server = MockServer::start().await;
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "change_state",
         &args(json!({"report_id": 7, "state": "archived"})),
     )
@@ -191,7 +189,7 @@ async fn create_comment_posts_an_activity_comment_and_omits_false_internal() {
     ] {
         dispatch(
             &client(&server),
-            &config(None),
+            &scope(None),
             "create_comment",
             &args(arguments),
         )
@@ -219,7 +217,7 @@ async fn update_title_patches_only_the_title() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_title",
         &args(json!({"report_id": 7, "title": "New title", "state": "triaged"})),
     )
@@ -274,7 +272,7 @@ async fn write_tools_reject_wrongly_typed_arguments_before_any_request() {
     ] {
         let error = dispatch(
             &client(&server),
-            &config(Some("acme")),
+            &scope(Some("acme")),
             name,
             &args(arguments),
         )
@@ -307,7 +305,7 @@ async fn update_reference_posts_the_reference_body() {
     ] {
         let value = dispatch(
             &client(&server),
-            &config(None),
+            &scope(None),
             "update_reference",
             &args(arguments),
         )
@@ -343,7 +341,7 @@ async fn update_cves_puts_the_ids_in_caller_order() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_cves",
         &args(json!({"report_id": 7, "cve_ids": ["CVE-2024-2", "CVE-2024-1"]})),
     )
@@ -367,7 +365,7 @@ async fn escalate_report_posts_an_untyped_body() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "escalate_report",
         &args(json!({"report_id": 7, "integration_id": "42"})),
     )
@@ -388,7 +386,7 @@ async fn remove_escalation_deletes_without_a_body() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "remove_escalation",
         &args(json!({"report_id": 7})),
     )
@@ -422,7 +420,7 @@ async fn custom_field_values_post_each_attribute_in_key_order() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_custom_field_values",
         &args(json!({"report_id": 7, "custom_fields": {"10": "ten", "2": "two"}})),
     )
@@ -473,7 +471,7 @@ async fn custom_field_values_report_a_partial_failure_and_keep_going() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_custom_field_values",
         &args(json!({
             "report_id": 7,
@@ -510,7 +508,7 @@ async fn custom_field_values_edge_cases_never_send_a_request() {
 
     let empty = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_custom_field_values",
         &args(json!({"report_id": 7, "custom_fields": {}})),
     )
@@ -520,7 +518,7 @@ async fn custom_field_values_edge_cases_never_send_a_request() {
 
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "update_custom_field_values",
         &args(json!({"report_id": 7, "custom_fields": {"not-a-number": "x"}})),
     )

@@ -40,19 +40,22 @@ pub const DEFAULT_HTTP_BIND: &str = "127.0.0.1:8765";
 pub const HTTP_TOKEN_VAR: &str = "HACKERONE_MCP_HTTP_TOKEN";
 
 use crate::config::Config;
+use crate::tool::scope::ProgramScope;
 
-/// MCP server: one API client plus the config, routing `tools/call` through
-/// [`tool::dispatch`] (ADR-0007).
+/// MCP server: one API client plus the configured program, routing
+/// `tools/call` through [`tool::dispatch`] (ADR-0007).
 #[derive(Clone)]
 pub struct HackerOneServer {
     client: Client,
-    config: Config,
+    /// Shared by every session the same process serves, so the resolved
+    /// program id outlives a connection.
+    scope: Arc<ProgramScope>,
 }
 
 impl HackerOneServer {
     #[must_use]
-    pub fn new(client: Client, config: Config) -> Self {
-        Self { client, config }
+    pub fn new(client: Client, scope: Arc<ProgramScope>) -> Self {
+        Self { client, scope }
     }
 }
 
@@ -83,7 +86,7 @@ impl ServerHandler for HackerOneServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = request.arguments.unwrap_or_default();
-        let result = tool::dispatch(&self.client, &self.config, &request.name, &args).await;
+        let result = tool::dispatch(&self.client, &self.scope, &request.name, &args).await;
         Ok(match result {
             Ok(value) => CallToolResult::success(vec![ContentBlock::text(pretty(&value))]),
             // Failed tool call, not a protocol error: the client sees the cause.
@@ -151,7 +154,8 @@ pub fn init_tracing() {
 /// transport failure that ended the session.
 pub async fn serve_stdio(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let client = client(&config)?;
-    let service = HackerOneServer::new(client, config).serve(stdio()).await?;
+    let scope = Arc::new(ProgramScope::new(config.program_handle.clone()));
+    let service = HackerOneServer::new(client, scope).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }
@@ -184,9 +188,10 @@ pub async fn serve_http(config: Config) -> Result<(), Box<dyn std::error::Error>
         allowed_hosts.push(addr.ip().to_string());
         allowed_hosts.push(addr.to_string());
     }
-    let service_config = config.clone();
+    // One scope for the process: every session shares the resolved program id.
+    let scope = Arc::new(ProgramScope::new(config.program_handle.clone()));
     let service = StreamableHttpService::new(
-        move || Ok(HackerOneServer::new(client.clone(), service_config.clone())),
+        move || Ok(HackerOneServer::new(client.clone(), Arc::clone(&scope))),
         sessions.clone(),
         StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts),
     );
@@ -271,9 +276,13 @@ mod tests {
     async fn rejected_request_creates_no_session() {
         let sessions = Arc::new(LocalSessionManager::default());
         let client = Client::new("user", "token").expect("build client");
-        let config = Config::default();
         let service = StreamableHttpService::new(
-            move || Ok(HackerOneServer::new(client.clone(), config.clone())),
+            move || {
+                Ok(HackerOneServer::new(
+                    client.clone(),
+                    Arc::new(ProgramScope::new(None)),
+                ))
+            },
             sessions.clone(),
             StreamableHttpServerConfig::default(),
         );

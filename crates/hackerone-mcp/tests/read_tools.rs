@@ -2,10 +2,7 @@
 //! method/path/query, body passthrough, upstream normalization, typed failures.
 
 use hackerone_api::{Client, Error};
-use hackerone_mcp::{
-    config::Config,
-    tool::{self, ToolName, dispatch},
-};
+use hackerone_mcp::tool::{self, ToolName, dispatch, scope::ProgramScope};
 use serde_json::{Map, Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -18,11 +15,9 @@ fn client(server: &MockServer) -> Client {
         .with_base_url(server.uri())
 }
 
-fn config(handle: Option<&str>) -> Config {
-    Config {
-        program_handle: handle.map(str::to_owned),
-        ..Config::default()
-    }
+/// One configured program, as the server shell holds it.
+fn scope(handle: Option<&str>) -> ProgramScope {
+    ProgramScope::new(handle.map(str::to_owned))
 }
 
 fn args(value: Value) -> Map<String, Value> {
@@ -78,7 +73,7 @@ async fn get_report_returns_the_raw_body() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "get_report",
         &args(json!({"report_id": 7})),
     )
@@ -94,7 +89,7 @@ async fn get_report_rejects_a_missing_or_non_integer_id() {
     for arguments in [json!({}), json!({"report_id": "7"})] {
         let error = dispatch(
             &client(&server),
-            &config(None),
+            &scope(None),
             "get_report",
             &args(arguments),
         )
@@ -157,7 +152,7 @@ async fn custom_field_values_are_normalized_like_upstream() {
 
     let value = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "get_report_custom_field_values",
         &args(json!({"report_id": 7})),
     )
@@ -235,7 +230,7 @@ async fn malformed_report_payloads_are_decode_errors_naming_the_path() {
 
         let error = dispatch(
             &client(&server),
-            &config(None),
+            &scope(None),
             "get_report_custom_field_values",
             &args(json!({"report_id": 7})),
         )
@@ -261,7 +256,7 @@ async fn query_reports_sends_the_builder_query_for_the_configured_program() {
 
     let value = dispatch(
         &client(&server),
-        &config(Some("acme")),
+        &scope(Some("acme")),
         "query_reports",
         &args(json!({
             "states": ["new", "triaged"],
@@ -306,7 +301,7 @@ async fn query_reports_without_a_handle_fails_before_any_request() {
     let server = MockServer::start().await;
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "query_reports",
         &args(json!({})),
     )
@@ -354,7 +349,7 @@ async fn list_scopes_follows_links_next_and_then_lists_scopes() {
 
     let value = dispatch(
         &client(&server),
-        &config(Some("acme")),
+        &scope(Some("acme")),
         "list_scopes",
         &args(json!({"scope_id_gt": 10, "page_size": 5})),
     )
@@ -371,12 +366,58 @@ async fn list_scopes_follows_links_next_and_then_lists_scopes() {
 }
 
 #[tokio::test]
-async fn resolved_program_ids_are_cached_for_the_process() {
+async fn one_scope_resolves_its_program_id_once() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/me/programs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [{"id": "4242", "attributes": {"handle": "cached-handle"}}],
+            "links": {}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let scope = ProgramScope::new(Some("cached-handle".to_owned()));
+    for _ in 0..2 {
+        assert_eq!(
+            scope.id(&client(&server)).await.expect("program id"),
+            "4242"
+        );
+    }
+}
+
+#[tokio::test]
+async fn separate_scopes_do_not_share_a_cache() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/me/programs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "4242", "attributes": {"handle": "shared-handle"}}],
+            "links": {}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    for _ in 0..2 {
+        let scope = ProgramScope::new(Some("shared-handle".to_owned()));
+        assert_eq!(
+            scope.id(&client(&server)).await.expect("program id"),
+            "4242"
+        );
+    }
+}
+
+/// The scope the server holds outlives a `tools/call`, so a second
+/// `list_scopes` reuses the id instead of re-reading `/me/programs`.
+#[tokio::test]
+async fn one_scope_caches_the_program_id_across_tool_calls() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/me/programs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "4242", "attributes": {"handle": "acme"}}],
             "links": {}
         })))
         .expect(1)
@@ -389,15 +430,12 @@ async fn resolved_program_ids_are_cached_for_the_process() {
         .mount(&server)
         .await;
 
+    let client = client(&server);
+    let program = scope(Some("acme"));
     for _ in 0..2 {
-        dispatch(
-            &client(&server),
-            &config(Some("cached-handle")),
-            "list_scopes",
-            &args(json!({})),
-        )
-        .await
-        .expect("list_scopes");
+        dispatch(&client, &program, "list_scopes", &args(json!({})))
+            .await
+            .expect("list_scopes");
     }
 }
 
@@ -406,7 +444,7 @@ async fn missing_handle_is_reported_before_the_scope_request() {
     let server = MockServer::start().await;
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "list_scopes",
         &args(json!({})),
     )
@@ -431,7 +469,7 @@ async fn unknown_handle_ends_in_program_not_found() {
 
     let error = dispatch(
         &client(&server),
-        &config(Some("nobody")),
+        &scope(Some("nobody")),
         "list_scopes",
         &args(json!({})),
     )
@@ -445,7 +483,7 @@ async fn router_rejects_unknown_tool_names_without_a_request() {
     let server = MockServer::start().await;
     let error = dispatch(
         &client(&server),
-        &config(None),
+        &scope(None),
         "totally_unknown",
         &args(json!({})),
     )

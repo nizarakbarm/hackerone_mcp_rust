@@ -5,7 +5,6 @@ use hackerone_api::{Client, Error};
 use serde_json::{Map, Value, json};
 
 use super::decode_error;
-use crate::config::Config;
 
 /// `GET /reports/{report_id}` normalized by [`normalize`].
 ///
@@ -13,11 +12,7 @@ use crate::config::Config;
 ///
 /// [`Error::Validation`] for a missing/non-integer `report_id`, [`Error::Decode`]
 /// for a payload that does not have the expected shape, then any client error.
-pub async fn run(
-    client: &Client,
-    _config: &Config,
-    args: &Map<String, Value>,
-) -> Result<Value, Error> {
+pub async fn run(client: &Client, args: &Map<String, Value>) -> Result<Value, Error> {
     let report_id = super::report_id(args)?;
     let response = client
         .get(&format!("/reports/{report_id}"), &[], None)

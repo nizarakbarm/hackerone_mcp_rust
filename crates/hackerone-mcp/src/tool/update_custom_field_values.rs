@@ -10,7 +10,6 @@ use hackerone_api::{Client, Error};
 use serde_json::{Map, Value, json};
 
 use super::params;
-use crate::config::Config;
 
 /// Sequential `POST /reports/{report_id}/custom_field_values`, ascending by
 /// attribute id.
@@ -24,11 +23,7 @@ use crate::config::Config;
 ///
 /// [`Error::Validation`] for a missing/non-integer `report_id` or invalid
 /// `custom_fields` (including a non-numeric key), never for a failed write.
-pub async fn run(
-    client: &Client,
-    _config: &Config,
-    args: &Map<String, Value>,
-) -> Result<Value, Error> {
+pub async fn run(client: &Client, args: &Map<String, Value>) -> Result<Value, Error> {
     let report_id = super::report_id(args)?;
     let writes = params::update_custom_field_values(args)?;
 

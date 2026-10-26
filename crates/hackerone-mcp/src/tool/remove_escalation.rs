@@ -3,19 +3,13 @@
 use hackerone_api::{Client, Error};
 use serde_json::{Map, Value};
 
-use crate::config::Config;
-
 /// `DELETE /reports/{report_id}/escalate` with no body.
 ///
 /// # Errors
 ///
 /// [`Error::Validation`] for a missing/non-integer `report_id`, otherwise any
 /// error the client produced.
-pub async fn run(
-    client: &Client,
-    _config: &Config,
-    args: &Map<String, Value>,
-) -> Result<Value, Error> {
+pub async fn run(client: &Client, args: &Map<String, Value>) -> Result<Value, Error> {
     let report_id = super::report_id(args)?;
     client
         .delete(&format!("/reports/{report_id}/escalate"), &[], None)

@@ -17,6 +17,7 @@ pub mod params;
 pub mod query_reports;
 pub mod remove_escalation;
 pub mod schema;
+pub mod scope;
 pub mod update_custom_field_values;
 pub mod update_cves;
 pub mod update_reference;
@@ -26,7 +27,7 @@ use hackerone_api::{Client, Error};
 use serde::de::Error as _;
 use serde_json::{Map, Value};
 
-use crate::config::Config;
+use scope::ProgramScope;
 
 /// The thirteen MCP tools, in upstream `tools/list` order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -164,7 +165,7 @@ pub const WIRED: [(ToolName, &str); 13] = [
 /// or not-yet-wired tool name.
 pub async fn dispatch(
     client: &Client,
-    config: &Config,
+    scope: &ProgramScope,
     name: &str,
     args: &Map<String, Value>,
 ) -> Result<Value, Error> {
@@ -175,23 +176,21 @@ pub async fn dispatch(
         });
     };
     match tool {
-        ToolName::GetReport => get_report::run(client, config, args).await,
+        ToolName::GetReport => get_report::run(client, args).await,
         ToolName::GetReportCustomFieldValues => {
-            get_report_custom_field_values::run(client, config, args).await
+            get_report_custom_field_values::run(client, args).await
         }
-        ToolName::CreateReport => create_report::run(client, config, args).await,
-        ToolName::QueryReports => query_reports::run(client, config, args).await,
-        ToolName::ListScopes => list_scopes::run(client, config, args).await,
-        ToolName::ChangeState => change_state::run(client, config, args).await,
-        ToolName::CreateComment => create_comment::run(client, config, args).await,
-        ToolName::UpdateTitle => update_title::run(client, config, args).await,
-        ToolName::UpdateReference => update_reference::run(client, config, args).await,
-        ToolName::UpdateCves => update_cves::run(client, config, args).await,
-        ToolName::EscalateReport => escalate_report::run(client, config, args).await,
-        ToolName::RemoveEscalation => remove_escalation::run(client, config, args).await,
-        ToolName::UpdateCustomFieldValues => {
-            update_custom_field_values::run(client, config, args).await
-        }
+        ToolName::CreateReport => create_report::run(client, scope, args).await,
+        ToolName::QueryReports => query_reports::run(client, scope, args).await,
+        ToolName::ListScopes => list_scopes::run(client, scope, args).await,
+        ToolName::ChangeState => change_state::run(client, args).await,
+        ToolName::CreateComment => create_comment::run(client, args).await,
+        ToolName::UpdateTitle => update_title::run(client, args).await,
+        ToolName::UpdateReference => update_reference::run(client, args).await,
+        ToolName::UpdateCves => update_cves::run(client, args).await,
+        ToolName::EscalateReport => escalate_report::run(client, args).await,
+        ToolName::RemoveEscalation => remove_escalation::run(client, args).await,
+        ToolName::UpdateCustomFieldValues => update_custom_field_values::run(client, args).await,
     }
 }
 

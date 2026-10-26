@@ -4,7 +4,6 @@ use hackerone_api::{Client, Error};
 use serde_json::{Map, Value};
 
 use super::params;
-use crate::config::Config;
 
 /// `PUT /reports/{report_id}/cves`.
 ///
@@ -13,11 +12,7 @@ use crate::config::Config;
 /// [`Error::Validation`] for a missing/non-integer `report_id`, a
 /// missing/non-array `cve_ids`, or a non-string member, otherwise any error the
 /// client produced.
-pub async fn run(
-    client: &Client,
-    _config: &Config,
-    args: &Map<String, Value>,
-) -> Result<Value, Error> {
+pub async fn run(client: &Client, args: &Map<String, Value>) -> Result<Value, Error> {
     let report_id = super::report_id(args)?;
     let params = params::update_cves(args)?;
     client
