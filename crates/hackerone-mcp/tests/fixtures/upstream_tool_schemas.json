@@ -1,0 +1,467 @@
+[
+ {
+  "name": "get_report",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    }
+   },
+   "required": [
+    "report_id"
+   ]
+  }
+ },
+ {
+  "name": "get_report_custom_field_values",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    }
+   },
+   "required": [
+    "report_id"
+   ]
+  }
+ },
+ {
+  "name": "create_report",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string",
+     "description": "Report title."
+    },
+    "vulnerability_information": {
+     "type": "string",
+     "description": "Detailed vulnerability description (markdown)."
+    },
+    "severity_rating": {
+     "type": "string",
+     "enum": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "critical"
+     ],
+     "description": "Severity rating."
+    },
+    "weakness_id": {
+     "type": "integer",
+     "description": "CWE weakness ID (optional)."
+    },
+    "impact": {
+     "type": "string",
+     "description": "Impact description."
+    },
+    "source": {
+     "type": "string",
+     "description": "Source-system label for tracking. Defaults to 'api'."
+    },
+    "structured_scope_id": {
+     "type": "integer",
+     "description": "Structured scope ID (optional)."
+    }
+   },
+   "required": [
+    "title",
+    "vulnerability_information",
+    "impact"
+   ]
+  }
+ },
+ {
+  "name": "query_reports",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "inbox_ids": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "description": "Optional inbox IDs to narrow the query within the configured program."
+    },
+    "reporters": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Reporter usernames to filter on."
+    },
+    "assignees": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Assignee usernames, emails, or group names to filter on."
+    },
+    "states": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "new",
+       "pending-program-review",
+       "triaged",
+       "needs-more-info",
+       "resolved",
+       "not-applicable",
+       "informative",
+       "duplicate",
+       "spam",
+       "retesting"
+      ]
+     },
+     "description": "Current report states to include."
+    },
+    "report_ids": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "description": "Specific report IDs to fetch."
+    },
+    "severities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "none",
+       "low",
+       "medium",
+       "high",
+       "critical"
+      ]
+     },
+     "description": "Severity ratings to filter on."
+    },
+    "created_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports created after this timestamp."
+    },
+    "created_before": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports created before this timestamp."
+    },
+    "submitted_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports submitted after this timestamp."
+    },
+    "submitted_before": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports submitted before this timestamp."
+    },
+    "triaged_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports triaged after this timestamp."
+    },
+    "triaged_before": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports triaged before this timestamp."
+    },
+    "closed_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports closed after this timestamp."
+    },
+    "closed_before": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports closed before this timestamp."
+    },
+    "last_activity_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports with activity after this timestamp."
+    },
+    "last_activity_before": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include reports with activity before this timestamp."
+    },
+    "sort_by": {
+     "type": "string",
+     "enum": [
+      "swag_awarded_at",
+      "bounty_awarded_at",
+      "last_reporter_activity_at",
+      "first_program_activity_at",
+      "last_program_activity_at",
+      "triaged_at",
+      "created_at",
+      "closed_at",
+      "last_public_activity_at",
+      "last_activity_at",
+      "disclosed_at"
+     ],
+     "description": "Field to sort the report list by."
+    },
+    "sort_order": {
+     "type": "string",
+     "enum": [
+      "asc",
+      "desc"
+     ],
+     "description": "Sort direction. Defaults to asc."
+    },
+    "page_number": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Page number to fetch."
+    },
+    "page_size": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100,
+     "description": "Number of reports per page (1-100)."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "list_scopes",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "scope_id_gt": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Only include scopes with IDs greater than this value."
+    },
+    "created_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include scopes created after this timestamp."
+    },
+    "updated_after": {
+     "type": "string",
+     "format": "date-time",
+     "description": "Only include scopes updated after this timestamp."
+    },
+    "page_number": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Page number to fetch."
+    },
+    "page_size": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100,
+     "description": "Number of scopes per page (1-100)."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "change_state",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "state": {
+     "type": "string",
+     "enum": [
+      "new",
+      "pending-program-review",
+      "triaged",
+      "needs-more-info",
+      "resolved",
+      "not-applicable",
+      "informative",
+      "duplicate",
+      "spam",
+      "retesting"
+     ],
+     "description": "Target state."
+    },
+    "message": {
+     "type": "string",
+     "description": "Message to include with the state change (optional)."
+    },
+    "original_report_id": {
+     "type": "integer",
+     "description": "Original report ID if marking as duplicate (optional)."
+    },
+    "attachment_ids": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "description": "Attachment IDs to include with the state change (optional)."
+    }
+   },
+   "required": [
+    "report_id",
+    "state"
+   ]
+  }
+ },
+ {
+  "name": "create_comment",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "message": {
+     "type": "string",
+     "description": "Comment text (markdown)."
+    },
+    "internal": {
+     "type": "boolean",
+     "description": "If true, comment is only visible to the team. Defaults to false."
+    }
+   },
+   "required": [
+    "report_id",
+    "message"
+   ]
+  }
+ },
+ {
+  "name": "update_title",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "title": {
+     "type": "string",
+     "description": "New title."
+    }
+   },
+   "required": [
+    "report_id",
+    "title"
+   ]
+  }
+ },
+ {
+  "name": "update_reference",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "reference": {
+     "type": "string",
+     "description": "External reference URL or identifier."
+    },
+    "message": {
+     "type": "string",
+     "description": "Internal message to include with the reference update (optional)."
+    }
+   },
+   "required": [
+    "report_id",
+    "reference"
+   ]
+  }
+ },
+ {
+  "name": "update_cves",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "cve_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of CVE IDs (e.g. ['CVE-2024-1234'])."
+    }
+   },
+   "required": [
+    "report_id",
+    "cve_ids"
+   ]
+  }
+ },
+ {
+  "name": "escalate_report",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "integration_id": {
+     "type": "string",
+     "description": "Integration instance ID to escalate to."
+    }
+   },
+   "required": [
+    "report_id",
+    "integration_id"
+   ]
+  }
+ },
+ {
+  "name": "remove_escalation",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    }
+   },
+   "required": [
+    "report_id"
+   ]
+  }
+ },
+ {
+  "name": "update_custom_field_values",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "report_id": {
+     "type": "integer",
+     "description": "The report ID."
+    },
+    "custom_fields": {
+     "type": "object",
+     "description": "Key-value pairs of custom field attribute_id to value.",
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "report_id",
+    "custom_fields"
+   ]
+  }
+ }
+]

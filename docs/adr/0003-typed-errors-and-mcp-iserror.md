@@ -25,3 +25,7 @@ cannot distinguish failure from data. It also silently coerces malformed payload
 - Parity break for callers that parsed `{"error": ...}` from text — documented in the README
   differences table.
 - Every API failure carries a machine-checkable cause through the whole call path.
+- Response models decode permissively: fields optional or `#[serde(default)]`, unknown keys
+  ignored, no `deny_unknown_fields`. A sparse-but-valid payload must never surface as
+  `Decode`. Until typed models land, the client returns `serde_json::Value` (no strict
+  coercion, no `{}`/`[]` fallback).

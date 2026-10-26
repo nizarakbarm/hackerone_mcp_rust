@@ -12,7 +12,7 @@ Toolchain here is rustc 1.99.
 
 - `edition = "2024"`, `rust-version` pinned to the MSRV of the locked `rmcp` version (and
   raised only when rmcp raises it).
-- HTTP client: `reqwest` (current 0.13.x) with `rustls-tls` + `rustls-native-certs`; no
+- HTTP client: `reqwest` (current 0.13.x) with the `rustls` feature (`rustls-platform-verifier`, i.e. the OS trust store); no
   OpenSSL, no `native-tls`.
 - Logging: `tracing` + `tracing-subscriber`, writer pinned to **stderr**, `EnvFilter` from
   `RUST_LOG`, default `info`. Request logs carry method + path + status; `Authorization` and
