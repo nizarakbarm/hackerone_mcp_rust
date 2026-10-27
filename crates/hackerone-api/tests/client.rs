@@ -252,7 +252,8 @@ async fn absolute_path_is_sent() {
 #[tokio::test]
 async fn body_exactly_at_the_limit_parses() {
     let server = MockServer::start().await;
-    let payload = br#"{"data":[],"pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
+    let payload =
+        br#"{"data":[],"pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
     Mock::given(method("GET"))
         .and(path("/reports"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.to_vec()))
@@ -314,7 +315,10 @@ async fn error_body_past_the_error_cap_is_truncated_not_failed() {
         .mount(&server)
         .await;
 
-    let error = client(&server).get("/reports", &[], None).await.unwrap_err();
+    let error = client(&server)
+        .get("/reports", &[], None)
+        .await
+        .unwrap_err();
     let printed = error.to_string();
     assert!(
         printed.len() <= 4096 + 64,
@@ -351,7 +355,10 @@ async fn error_body_cut_inside_a_multibyte_character_stays_valid_utf8() {
         .mount(&server)
         .await;
 
-    let error = client(&server).get("/reports", &[], None).await.unwrap_err();
+    let error = client(&server)
+        .get("/reports", &[], None)
+        .await
+        .unwrap_err();
 
     match error {
         Error::Api { status, body, .. } => {
