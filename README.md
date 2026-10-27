@@ -34,12 +34,16 @@ All paths are relative to `https://api.hackerone.com/v1`.
 | `search_programs` | `GET /hackers/programs` | Scan up to 20 directory pages (default 5) and filter `offers_bounties`/`state`/`submission_state` client-side; reports truncation when the budget ended with pages left. |
 | `get_program` | `GET /hackers/programs/{handle}` | Fetch one program by handle (bounty signals, policy, submission state). |
 | `get_program_structured_scopes` | `GET /hackers/programs/{handle}/structured_scopes` | List a program's structured scopes; documents the 10 000-item API cap and `scope_id_gt` paging beyond it. |
+| `get_program_scope_exclusions` | `GET /hackers/programs/{handle}/scope_exclusions` | List the report categories a program never rewards, beyond core ineligible findings. |
+| `get_program_weaknesses` | `GET /hackers/programs/{handle}/weaknesses` | List a program's accepted weaknesses (CWEs), paginated. |
+| `list_my_reports` | `GET /hackers/me/reports` | List the authenticated hacker's own reports, paginated. |
+| `search_hacktivity` | `GET /hackers/hacktivity` | Search public hacktivity with a verbatim Apache Lucene `queryString`; `sort` defaults to `-latest_disclosable_activity_at`. |
 
 `query_reports` and `list_scopes` always scope results to the configured
 program handle; no tool accepts a program/team-handle argument. `list_scopes`
 resolves the handle to a program ID by following `links.next` on
-`/me/programs`. The three `hacker` tools take an explicit `handle` and spend
-the hacker token pair, not the customer pair.
+`/me/programs`. The `hacker` tools spend the hacker token pair, not the customer pair;
+the program-scoped ones take an explicit `handle`.
 
 ## Prerequisites
 

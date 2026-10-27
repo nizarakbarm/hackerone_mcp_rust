@@ -123,12 +123,29 @@ async fn every_hacker_tool_sends_only_the_hacker_token() {
         .expect(1)
         .mount(&server)
         .await;
+    for endpoint in [
+        "/hackers/programs/acme/scope_exclusions",
+        "/hackers/programs/acme/weaknesses",
+        "/hackers/me/reports",
+        "/hackers/hacktivity",
+    ] {
+        Mock::given(method("GET"))
+            .and(path(endpoint))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
 
     let clients = clients(&server);
     for (name, arguments) in [
         ("search_programs", json!({})),
         ("get_program", json!({"handle": "acme"})),
         ("get_program_structured_scopes", json!({"handle": "acme"})),
+        ("get_program_scope_exclusions", json!({"handle": "acme"})),
+        ("get_program_weaknesses", json!({"handle": "acme"})),
+        ("list_my_reports", json!({})),
+        ("search_hacktivity", json!({})),
     ] {
         dispatch(&clients, &ProgramScope::new(None), name, &args(arguments))
             .await
@@ -136,7 +153,7 @@ async fn every_hacker_tool_sends_only_the_hacker_token() {
     }
 
     let seen = authorizations(&server).await;
-    assert_eq!(seen.len(), 3);
+    assert_eq!(seen.len(), 7);
     for auth in seen {
         assert_eq!(auth.as_deref(), Some(HACKER_AUTH), "hacker token expected");
         assert_ne!(
@@ -464,7 +481,12 @@ async fn structured_scopes_map_a_404_to_program_not_found() {
 #[tokio::test]
 async fn a_handle_can_never_escape_its_path_segment() {
     let server = MockServer::start().await;
-    for name in ["get_program", "get_program_structured_scopes"] {
+    for name in [
+        "get_program",
+        "get_program_structured_scopes",
+        "get_program_scope_exclusions",
+        "get_program_weaknesses",
+    ] {
         let error = dispatch(
             &clients(&server),
             &ProgramScope::new(None),
@@ -487,8 +509,314 @@ fn hacker_tools_are_in_the_registry_as_hacker_class() {
         "search_programs",
         "get_program",
         "get_program_structured_scopes",
+        "get_program_scope_exclusions",
+        "get_program_weaknesses",
+        "list_my_reports",
+        "search_hacktivity",
     ] {
         let tool = tool::ToolName::from_wire(name).expect("tool exists");
         assert_eq!(tool.class(), hackerone_api::CredentialClass::Hacker);
     }
+}
+
+#[tokio::test]
+async fn scope_exclusions_uses_the_exact_path_and_passes_the_body_through() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "data": [{
+            "type": "scope_exclusion",
+            "id": "7",
+            "attributes": {"name": "Third-party components"}
+        }]
+    });
+    Mock::given(method("GET"))
+        .and(path("/hackers/programs/acme/scope_exclusions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "get_program_scope_exclusions",
+        &args(json!({"handle": "acme"})),
+    )
+    .await
+    .expect("scope exclusions");
+
+    assert_eq!(value, body);
+    let requests = received(&server).await;
+    assert_eq!(requests.len(), 1);
+    assert!(query_pairs(&requests[0]).is_empty());
+}
+
+#[tokio::test]
+async fn scope_exclusions_map_a_404_to_program_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hackers/programs/ghost/scope_exclusions"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"errors": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let error = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "get_program_scope_exclusions",
+        &args(json!({"handle": "ghost"})),
+    )
+    .await
+    .expect_err("404");
+
+    assert!(
+        matches!(error, Error::ProgramNotFound { ref handle } if handle == "ghost"),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn weaknesses_encode_pagination_and_pass_the_body_through() {
+    let server = MockServer::start().await;
+    let body = json!({"data": [{"type": "weakness", "id": "79"}]});
+    Mock::given(method("GET"))
+        .and(path("/hackers/programs/acme/weaknesses"))
+        .and(query_param("page[number]", "3"))
+        .and(query_param("page[size]", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "get_program_weaknesses",
+        &args(json!({"handle": "acme", "page_number": 3, "page_size": 100})),
+    )
+    .await
+    .expect("weaknesses");
+
+    assert_eq!(value, body);
+    assert_eq!(
+        query_pairs(&received(&server).await[0]),
+        expected(&[("page[number]", "3"), ("page[size]", "100")])
+    );
+}
+
+#[tokio::test]
+async fn weaknesses_map_a_404_to_program_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hackers/programs/ghost/weaknesses"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"errors": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let error = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "get_program_weaknesses",
+        &args(json!({"handle": "ghost"})),
+    )
+    .await
+    .expect_err("404");
+
+    assert!(
+        matches!(error, Error::ProgramNotFound { ref handle } if handle == "ghost"),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn list_my_reports_uses_the_exact_path_with_pagination() {
+    let server = MockServer::start().await;
+    let body = json!({"data": [{"type": "report", "id": "1"}]});
+    Mock::given(method("GET"))
+        .and(path("/hackers/me/reports"))
+        .and(query_param("page[number]", "2"))
+        .and(query_param("page[size]", "25"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "list_my_reports",
+        &args(json!({"page_number": 2, "page_size": 25})),
+    )
+    .await
+    .expect("my reports");
+
+    assert_eq!(value, body);
+    assert_eq!(
+        query_pairs(&received(&server).await[0]),
+        expected(&[("page[number]", "2"), ("page[size]", "25")])
+    );
+}
+
+#[tokio::test]
+async fn list_my_reports_sends_no_parameters_when_pagination_is_omitted() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hackers/me/reports"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "list_my_reports",
+        &args(json!({})),
+    )
+    .await
+    .expect("my reports");
+
+    assert!(query_pairs(&received(&server).await[0]).is_empty());
+}
+
+/// Lucene that exercises spaces, `:`, `>=`, `AND`/`OR`, quotes and parentheses.
+const LUCENE: &str = r#"severity_rating:critical AND disclosed_at:>=01-01-1970 AND team:"acme corp" AND (cwe:79 OR cwe:89)"#;
+
+#[tokio::test]
+async fn search_hacktivity_passes_the_lucene_query_through_verbatim() {
+    let server = MockServer::start().await;
+    let body = json!({"data": [{"type": "hacktivity_item", "id": "9"}]});
+    Mock::given(method("GET"))
+        .and(path("/hackers/hacktivity"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_hacktivity",
+        &args(json!({
+            "queryString": LUCENE,
+            "sort": "-disclosed_at",
+            "page_number": 2,
+            "page_size": 50,
+        })),
+    )
+    .await
+    .expect("hacktivity");
+
+    assert_eq!(value, body);
+    assert_eq!(
+        query_pairs(&received(&server).await[0]),
+        expected(&[
+            ("queryString", LUCENE),
+            ("sort", "-disclosed_at"),
+            ("page[number]", "2"),
+            ("page[size]", "50"),
+        ])
+    );
+}
+
+#[tokio::test]
+async fn search_hacktivity_omits_an_absent_query_string_and_sends_the_default_sort() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hackers/hacktivity"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_hacktivity",
+        &args(json!({})),
+    )
+    .await
+    .expect("hacktivity");
+
+    assert_eq!(
+        query_pairs(&received(&server).await[0]),
+        expected(&[("sort", "-latest_disclosable_activity_at")])
+    );
+}
+
+#[test]
+fn hacktivity_page_size_is_bounded_and_query_string_is_optional() {
+    let defaults = params::search_hacktivity(&args(json!({}))).expect("defaults");
+    assert_eq!(
+        defaults.query,
+        expected(&[("sort", "-latest_disclosable_activity_at")])
+    );
+
+    for size in [1, 100] {
+        let query = params::search_hacktivity(&args(json!({"page_size": size})))
+            .expect("in range")
+            .query;
+        assert_eq!(
+            query,
+            expected(&[
+                ("sort", "-latest_disclosable_activity_at"),
+                ("page[size]", &size.to_string()),
+            ])
+        );
+    }
+    for size in [0, 101] {
+        let error =
+            params::search_hacktivity(&args(json!({"page_size": size}))).expect_err("out of range");
+        assert!(
+            matches!(error, Error::Validation { ref field, .. } if field == "page_size"),
+            "{error:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn hacktivity_rejects_an_out_of_range_page_size_before_any_request() {
+    let server = MockServer::start().await;
+    for size in [0, 101] {
+        let error = dispatch(
+            &clients(&server),
+            &ProgramScope::new(None),
+            "search_hacktivity",
+            &args(json!({"page_size": size})),
+        )
+        .await
+        .expect_err("out of range");
+        assert!(matches!(error, Error::Validation { ref field, .. } if field == "page_size"));
+    }
+    assert!(received(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_query_string_is_passed_through_unvalidated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hackers/hacktivity"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": []})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_hacktivity",
+        &args(json!({"queryString": "  unbalanced ( quote\" AND "})),
+    )
+    .await
+    .expect("hacktivity");
+
+    assert_eq!(
+        query_pairs(&received(&server).await[0]),
+        expected(&[
+            ("queryString", "  unbalanced ( quote\" AND "),
+            ("sort", "-latest_disclosable_activity_at"),
+        ])
+    );
 }

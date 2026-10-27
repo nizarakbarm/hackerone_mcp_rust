@@ -11,15 +11,19 @@ pub mod create_comment;
 pub mod create_report;
 pub mod escalate_report;
 pub mod get_program;
+pub mod get_program_scope_exclusions;
 pub mod get_program_structured_scopes;
+pub mod get_program_weaknesses;
 pub mod get_report;
 pub mod get_report_custom_field_values;
+pub mod list_my_reports;
 pub mod list_scopes;
 pub mod params;
 pub mod query_reports;
 pub mod remove_escalation;
 pub mod schema;
 pub mod scope;
+pub mod search_hacktivity;
 pub mod search_programs;
 pub mod update_custom_field_values;
 pub mod update_cves;
@@ -54,12 +58,16 @@ pub enum ToolName {
     SearchPrograms,
     GetProgram,
     GetProgramStructuredScopes,
+    GetProgramScopeExclusions,
+    GetProgramWeaknesses,
+    ListMyReports,
+    SearchHacktivity,
 }
 
 impl ToolName {
     /// Every tool, in advertised order: upstream's thirteen, then the
     /// hacker-side reads.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 20] = [
         Self::GetReport,
         Self::GetReportCustomFieldValues,
         Self::CreateReport,
@@ -76,6 +84,10 @@ impl ToolName {
         Self::SearchPrograms,
         Self::GetProgram,
         Self::GetProgramStructuredScopes,
+        Self::GetProgramScopeExclusions,
+        Self::GetProgramWeaknesses,
+        Self::ListMyReports,
+        Self::SearchHacktivity,
     ];
 
     /// Wire name as it appears in `tools/list` and `tools/call`.
@@ -98,6 +110,10 @@ impl ToolName {
             Self::SearchPrograms => "search_programs",
             Self::GetProgram => "get_program",
             Self::GetProgramStructuredScopes => "get_program_structured_scopes",
+            Self::GetProgramScopeExclusions => "get_program_scope_exclusions",
+            Self::GetProgramWeaknesses => "get_program_weaknesses",
+            Self::ListMyReports => "list_my_reports",
+            Self::SearchHacktivity => "search_hacktivity",
         }
     }
 
@@ -134,7 +150,7 @@ impl ToolName {
 /// descriptions and credential class: the only tools `tools/list` may
 /// advertise, and the authority `dispatch` uses to pick a client (ADR-0008).
 /// Every name `ToolName` knows is wired.
-pub const WIRED: [(ToolName, &str, CredentialClass); 16] = [
+pub const WIRED: [(ToolName, &str, CredentialClass); 20] = [
     (
         ToolName::GetReport,
         "Fetch a single HackerOne report by ID.",
@@ -225,6 +241,31 @@ pub const WIRED: [(ToolName, &str, CredentialClass); 16] = [
          seen and repeat.",
         CredentialClass::Hacker,
     ),
+    (
+        ToolName::GetProgramScopeExclusions,
+        "List a program's scope exclusions: the report categories it never rewards, in \
+         addition to core ineligible findings.",
+        CredentialClass::Hacker,
+    ),
+    (
+        ToolName::GetProgramWeaknesses,
+        "List the weaknesses (CWEs) a program accepts, with page_number and page_size \
+         (1-100, default 25).",
+        CredentialClass::Hacker,
+    ),
+    (
+        ToolName::ListMyReports,
+        "List the authenticated hacker's own reports, with page_number and page_size \
+         (1-100, default 25).",
+        CredentialClass::Hacker,
+    ),
+    (
+        ToolName::SearchHacktivity,
+        "Search public HackerOne hacktivity with an Apache Lucene queryString (for example \
+         'severity_rating:critical AND disclosed:true'), sorted by sort (default \
+         -latest_disclosable_activity_at) and paginated.",
+        CredentialClass::Hacker,
+    ),
 ];
 
 /// Route one `tools/call` to the tool that owns its body (ADR-0007), spending
@@ -272,6 +313,12 @@ pub async fn dispatch(
         ToolName::GetProgramStructuredScopes => {
             get_program_structured_scopes::run(client, args).await
         }
+        ToolName::GetProgramScopeExclusions => {
+            get_program_scope_exclusions::run(client, args).await
+        }
+        ToolName::GetProgramWeaknesses => get_program_weaknesses::run(client, args).await,
+        ToolName::ListMyReports => list_my_reports::run(client, args).await,
+        ToolName::SearchHacktivity => search_hacktivity::run(client, args).await,
     }
 }
 

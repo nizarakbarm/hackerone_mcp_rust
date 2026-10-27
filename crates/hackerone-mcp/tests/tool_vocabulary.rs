@@ -60,6 +60,10 @@ fn tool_names_are_all_advertised_in_order() {
         "search_programs",
         "get_program",
         "get_program_structured_scopes",
+        "get_program_scope_exclusions",
+        "get_program_weaknesses",
+        "list_my_reports",
+        "search_hacktivity",
     ];
 
     assert_eq!(ToolName::ALL.len(), expected.len());

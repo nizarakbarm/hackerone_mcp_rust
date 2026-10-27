@@ -33,6 +33,10 @@ pub fn schema(tool: ToolName) -> Value {
         ToolName::SearchPrograms => search_programs(),
         ToolName::GetProgram => get_program(),
         ToolName::GetProgramStructuredScopes => get_program_structured_scopes(),
+        ToolName::GetProgramScopeExclusions => get_program_scope_exclusions(),
+        ToolName::GetProgramWeaknesses => get_program_weaknesses(),
+        ToolName::ListMyReports => list_my_reports(),
+        ToolName::SearchHacktivity => search_hacktivity(),
     }
 }
 
@@ -170,6 +174,44 @@ fn get_program_structured_scopes() -> Value {
         int_param("Number of scopes per page (1-100).", Some(1), Some(100)),
     );
     closed_object(Value::Object(properties))
+}
+
+fn get_program_scope_exclusions() -> Value {
+    object(
+        json!({"handle": str_param("Program handle, e.g. 'security'.")}),
+        &["handle"],
+    )
+}
+
+fn get_program_weaknesses() -> Value {
+    closed_object(json!({
+        "handle": str_param("Program handle, e.g. 'security'."),
+        "page_number": int_param("Page number to fetch.", Some(1), None),
+        "page_size": int_param("Number of weaknesses per page (1-100). Defaults 25.", Some(1), Some(100)),
+    }))
+}
+
+fn list_my_reports() -> Value {
+    closed_object(json!({
+        "page_number": int_param("Page number to fetch.", Some(1), None),
+        "page_size": int_param("Number of reports per page (1-100). Defaults 25.", Some(1), Some(100)),
+    }))
+}
+
+fn search_hacktivity() -> Value {
+    closed_object(json!({
+        "queryString": str_param(
+            "Apache Lucene query string, passed through verbatim. Supported fields: \
+             severity_rating, asset_type, substate, cwe, cve_ids, reporter, team, \
+             total_awarded_amount, disclosed_at, has_collaboration, disclosed.",
+        ),
+        "sort": str_param(
+            "Attribute to sort hacktivity items on; prefix with '-' to sort descending. \
+             Defaults to newest disclosable activity (-latest_disclosable_activity_at).",
+        ),
+        "page_number": int_param("Page number to fetch.", Some(1), None),
+        "page_size": int_param("Number of items per page (1-100). Defaults 25.", Some(1), Some(100)),
+    }))
 }
 
 fn get_report() -> Value {

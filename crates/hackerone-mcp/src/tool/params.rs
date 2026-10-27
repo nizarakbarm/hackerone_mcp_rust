@@ -539,6 +539,46 @@ fn optional_int_array(args: &Map<String, Value>, field: &str) -> Result<Option<V
     }
 }
 
+/// `sort` sent by `search_hacktivity` when the caller does not set one: the
+/// API's own default, newest disclosable activity first.
+pub const DEFAULT_HACKTIVITY_SORT: &str = "-latest_disclosable_activity_at";
+
+/// Query parameters for a pagination-only read (`list_my_reports`,
+/// `get_program_weaknesses`).
+///
+/// # Errors
+///
+/// [`Error::Validation`] for non-integer or out-of-range pagination.
+pub fn pagination(args: &Map<String, Value>) -> Result<Params, Error> {
+    let mut query = Vec::new();
+    push_pagination(&mut query, args)?;
+    Ok(Params { query, body: None })
+}
+
+/// `GET /hackers/hacktivity` parameters.
+///
+/// `queryString` is Apache Lucene and is passed through verbatim: it is never
+/// parsed, grammar-checked or re-encoded beyond transport URL encoding.
+///
+/// # Errors
+///
+/// [`Error::Validation`] for a non-string `queryString`/`sort` or out-of-range
+/// pagination.
+pub fn search_hacktivity(args: &Map<String, Value>) -> Result<Params, Error> {
+    let mut query = Vec::new();
+    if let Some(query_string) = optional_str(args, "queryString")? {
+        query.push(("queryString".to_owned(), query_string.to_owned()));
+    }
+    query.push((
+        "sort".to_owned(),
+        optional_str(args, "sort")?
+            .unwrap_or(DEFAULT_HACKTIVITY_SORT)
+            .to_owned(),
+    ));
+    push_pagination(&mut query, args)?;
+    Ok(Params { query, body: None })
+}
+
 fn push_dates(
     query: &mut Vec<(String, String)>,
     args: &Map<String, Value>,
