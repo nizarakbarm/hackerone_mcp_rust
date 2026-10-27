@@ -107,6 +107,14 @@ impl Server {
             response["result"]["capabilities"]["tools"].is_object(),
             "tools capability missing: {response}"
         );
+        // The tool list is static: the server must advertise the bare tools
+        // capability and nothing else. Exact equality, so a new capability
+        // (or a dropped one) fails here instead of drifting silently.
+        assert_eq!(
+            response["result"]["capabilities"],
+            json!({"tools": {}}),
+            "capabilities must be exactly {{\"tools\": {{}}}}: {response}"
+        );
         self.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
     }
 

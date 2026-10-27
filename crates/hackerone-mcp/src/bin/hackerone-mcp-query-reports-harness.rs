@@ -6,9 +6,12 @@
 
 use std::{
     env,
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    thread,
+    time::Duration,
 };
 
 use clap::Parser;
@@ -111,6 +114,12 @@ struct Cli {
     /// Print the raw JSON payload instead of a summary.
     #[arg(long)]
     raw: bool,
+    /// Seconds to wait for each MCP response before giving up. Defaults to 30.
+    #[arg(long, value_name = "SECONDS", default_value_t = 30)]
+    timeout_seconds: u64,
+    /// Run against this server binary instead of the sibling `hackerone-mcp`.
+    #[arg(long, value_name = "PATH", hide = true)]
+    server: Option<PathBuf>,
 }
 
 /// A failure carrying the process exit code upstream uses: 2 for bad
@@ -145,8 +154,13 @@ fn main() {
 fn run(cli: &Cli) -> Result<(), Failure> {
     let program_handle = collect_required_env(|key| env::var(key).ok()).map_err(usage)?;
     let arguments = build_query_reports_arguments(cli);
-    let server = server_binary().map_err(usage)?;
-    let mut client = McpClient::spawn(&server).map_err(usage)?;
+    let server = cli
+        .server
+        .clone()
+        .map_or_else(server_binary, Ok)
+        .map_err(usage)?;
+    let mut client =
+        McpClient::spawn(&server, Duration::from_secs(cli.timeout_seconds)).map_err(usage)?;
 
     client.initialize().map_err(failed)?;
     let tools = client.list_tools().map_err(failed)?;
@@ -262,24 +276,46 @@ fn find_query_reports_tool(tools: &Value) -> Result<&Value, String> {
 }
 
 /// The advertised `query_reports` schema must not accept caller-controlled
-/// program scope (ADR-0001 wart fix 6). Upstream checks only `program`.
+/// program scope (ADR-0001 wart fix 6), at any nesting depth.
 fn validate_query_reports_tool(tool: &Value) -> Result<(), String> {
-    let properties = tool
+    let schema = tool
         .get("inputSchema")
-        .and_then(|schema| schema.get("properties"))
-        .and_then(Value::as_object)
-        .ok_or_else(|| "query_reports advertises no inputSchema properties.".to_owned())?;
-    let forbidden: Vec<&str> = FORBIDDEN_SCHEMA_PROPERTIES
-        .into_iter()
-        .filter(|name| properties.contains_key(*name))
-        .collect();
-    if !forbidden.is_empty() {
+        .ok_or_else(|| "query_reports advertises no inputSchema.".to_owned())?;
+    let mut leaks = Vec::new();
+    collect_program_properties(schema, "inputSchema", &mut leaks);
+    if !leaks.is_empty() {
         return Err(format!(
-            "query_reports unexpectedly exposes caller-controlled program fields: {}",
-            forbidden.join(", ")
+            "query_reports unexpectedly exposes caller-controlled program fields at: {}",
+            leaks.join(", ")
         ));
     }
     Ok(())
+}
+
+/// Walk every `properties` object and `items` schema, collecting dotted paths.
+fn collect_program_properties(value: &Value, at: &str, leaks: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+                for (name, property) in properties {
+                    let path = format!("{at}.properties.{name}");
+                    if FORBIDDEN_SCHEMA_PROPERTIES.contains(&name.as_str()) {
+                        leaks.push(path.clone());
+                    }
+                    collect_program_properties(property, &path, leaks);
+                }
+            }
+            if let Some(items) = object.get("items") {
+                collect_program_properties(items, &format!("{at}.items"), leaks);
+            }
+        }
+        Value::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                collect_program_properties(value, &format!("{at}[{index}]"), leaks);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// One parsed JSON-RPC response line: `result` on success, the server's error
@@ -420,12 +456,13 @@ fn server_binary() -> Result<PathBuf, String> {
 struct McpClient {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    stdout: Receiver<io::Result<String>>,
+    timeout: Duration,
     next_id: u64,
 }
 
 impl McpClient {
-    fn spawn(program: &Path) -> Result<Self, String> {
+    fn spawn(program: &Path, timeout: Duration) -> Result<Self, String> {
         let mut child = Command::new(program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -433,11 +470,21 @@ impl McpClient {
             .spawn()
             .map_err(|error| format!("failed to start {}: {error}", program.display()))?;
         let stdin = child.stdin.take().ok_or("server stdin unavailable")?;
-        let stdout = BufReader::new(child.stdout.take().ok_or("server stdout unavailable")?);
+        let stdout = child.stdout.take().ok_or("server stdout unavailable")?;
+        let (sender, receiver) = mpsc::channel();
+        // Detached reader: blocking `read_line` would hang past the timeout.
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
         Ok(Self {
             child,
             stdin,
-            stdout,
+            stdout: receiver,
+            timeout,
             next_id: 1,
         })
     }
@@ -449,16 +496,28 @@ impl McpClient {
     }
 
     fn recv(&mut self) -> Result<Value, String> {
-        let mut line = String::new();
-        let read = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| format!("cannot read from the MCP server: {error}"))?;
-        if read == 0 {
-            return Err("MCP server closed stdout before responding.".to_owned());
-        }
+        let line = match self.stdout.recv_timeout(self.timeout) {
+            Ok(line) => {
+                line.map_err(|error| format!("cannot read from the MCP server: {error}"))?
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                self.kill();
+                return Err(format!(
+                    "MCP server did not respond within {}s.",
+                    self.timeout.as_secs()
+                ));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err("MCP server closed stdout before responding.".to_owned());
+            }
+        };
         serde_json::from_str(&line)
             .map_err(|error| format!("MCP server wrote a non-JSON line: {line:?}: {error}"))
+    }
+
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
@@ -514,8 +573,7 @@ impl McpClient {
 
 impl Drop for McpClient {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.kill();
     }
 }
 
@@ -669,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_leak_is_rejected() {
+    fn schema_leak_is_rejected_at_any_depth() {
         let tool = |properties: Value| json!({"name": "query_reports", "inputSchema": {"type": "object", "properties": properties}});
         validate_query_reports_tool(&tool(json!({"page_size": {"type": "integer"}})))
             .expect("clean schema");
@@ -679,7 +737,29 @@ mod tests {
             "team_handle": {"type": "string"},
         })))
         .unwrap_err();
-        assert!(error.contains("program, team_handle"), "{error}");
+        assert!(
+            error.contains("inputSchema.properties.program, inputSchema.properties.team_handle"),
+            "{error}"
+        );
+
+        let nested = tool(json!({
+            "page_size": {"type": "integer"},
+            "filter": {"type": "object", "properties": {"program": {"type": "string"}}},
+        }));
+        let error = validate_query_reports_tool(&nested).unwrap_err();
+        assert!(
+            error.contains("inputSchema.properties.filter.properties.program"),
+            "{error}"
+        );
+
+        let in_items = tool(json!({
+            "filters": {"type": "array", "items": {"type": "object", "properties": {"team_handle": {"type": "string"}}}},
+        }));
+        let error = validate_query_reports_tool(&in_items).unwrap_err();
+        assert!(
+            error.contains("inputSchema.properties.filters.items.properties.team_handle"),
+            "{error}"
+        );
     }
 
     #[test]

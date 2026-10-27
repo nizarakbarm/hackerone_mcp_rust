@@ -5,7 +5,7 @@
 use hackerone_api::{CredentialClass, Error};
 use hackerone_mcp::tool::{
     self, ArrayFilterKind, LIST_SCOPES_DATE_FILTERS, QUERY_REPORT_ARRAY_FILTERS,
-    QUERY_REPORT_DATE_FILTERS, REPORT_STATES, SEVERITIES, SORT_FIELDS, SORT_ORDERS, ToolName,
+    QUERY_REPORT_DATE_FILTERS, SORT_FIELDS, ToolName,
 };
 use serde_json::{Map, Value, json};
 
@@ -143,27 +143,53 @@ fn schema_properties_cover_every_filter_constant() {
     }
 }
 
+/// Upstream vocabulary pinned literally: asserting against the production
+/// constants would let a wrong constant bless itself.
+const GOLDEN_STATES: [&str; 10] = [
+    "new",
+    "pending-program-review",
+    "triaged",
+    "needs-more-info",
+    "resolved",
+    "not-applicable",
+    "informative",
+    "duplicate",
+    "spam",
+    "retesting",
+];
+
+const GOLDEN_SEVERITIES: [&str; 5] = ["none", "low", "medium", "high", "critical"];
+
+const GOLDEN_SORT_FIELDS: [&str; 11] = [
+    "swag_awarded_at",
+    "bounty_awarded_at",
+    "last_reporter_activity_at",
+    "first_program_activity_at",
+    "last_program_activity_at",
+    "triaged_at",
+    "created_at",
+    "closed_at",
+    "last_public_activity_at",
+    "last_activity_at",
+    "disclosed_at",
+];
+
 #[test]
-fn schema_enums_are_the_validation_constants() {
+fn schema_enums_are_golden() {
     let query_reports = ToolName::QueryReports.schema();
     let properties = query_reports["properties"].as_object().expect("properties");
-    assert_eq!(properties["states"]["items"]["enum"], json!(REPORT_STATES));
-    assert_eq!(properties["severities"]["items"]["enum"], json!(SEVERITIES));
+    assert_eq!(properties["states"]["items"]["enum"], json!(GOLDEN_STATES));
     assert_eq!(
-        properties["sort_by"]["enum"],
-        json!(
-            SORT_FIELDS
-                .iter()
-                .map(|field| field.name)
-                .collect::<Vec<_>>()
-        )
+        properties["severities"]["items"]["enum"],
+        json!(GOLDEN_SEVERITIES)
     );
-    assert_eq!(properties["sort_order"]["enum"], json!(SORT_ORDERS));
+    assert_eq!(properties["sort_by"]["enum"], json!(GOLDEN_SORT_FIELDS));
+    assert_eq!(properties["sort_order"]["enum"], json!(["asc", "desc"]));
 
     let change_state = ToolName::ChangeState.schema();
     assert_eq!(
         change_state["properties"]["state"]["enum"],
-        json!(REPORT_STATES)
+        json!(GOLDEN_STATES)
     );
 }
 

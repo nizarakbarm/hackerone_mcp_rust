@@ -184,3 +184,67 @@ async fn connection_refused_is_transport_error() {
 
     assert!(matches!(error, Error::Transport(_)), "got {error:?}");
 }
+
+#[tokio::test]
+async fn request_that_outlives_the_timeout_is_a_transport_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/slow"))
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(1)))
+        .mount(&server)
+        .await;
+
+    let client = Client::new("user", "token")
+        .unwrap()
+        .with_base_url(server.uri())
+        .with_request_timeout(std::time::Duration::from_millis(50))
+        .unwrap();
+
+    let error = client.get("/slow", &[], None).await.unwrap_err();
+
+    assert!(matches!(error, Error::Transport(_)), "got {error:?}");
+}
+
+#[tokio::test]
+async fn path_without_leading_slash_is_rejected_before_sending() {
+    let server = MockServer::start().await;
+    let client = client(&server);
+
+    let error = client.get("reports/1", &[], None).await.unwrap_err();
+
+    match error {
+        Error::Validation { field, .. } => assert_eq!(field, "path"),
+        other => panic!("expected a validation error, got {other:?}"),
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn parent_traversal_path_is_rejected_before_sending() {
+    let server = MockServer::start().await;
+    let client = client(&server);
+
+    for path in ["../admin", "/reports/../admin", "..", "/.."] {
+        let error = client.get(path, &[], None).await.unwrap_err();
+        match error {
+            Error::Validation { field, .. } => assert_eq!(field, "path", "path {path}"),
+            other => panic!("expected a validation error for {path}, got {other:?}"),
+        }
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn absolute_path_is_sent() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/reports/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"id": "1"}})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let body = client(&server).get("/reports/1", &[], None).await.unwrap();
+
+    assert_eq!(body, json!({"data": {"id": "1"}}));
+}

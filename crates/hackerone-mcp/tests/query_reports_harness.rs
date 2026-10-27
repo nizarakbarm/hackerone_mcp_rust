@@ -157,3 +157,94 @@ fn missing_credentials_fail_before_spawning_the_server() {
     );
     assert_eq!(output.status.code(), Some(2));
 }
+
+/// Fake MCP child: replies to `initialize`, then answers `tools/list` with a
+/// schema that hides `program` one level deep.
+const LEAKY_SERVER: &str = r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fake","version":"0.0.0"}}}'
+      ;;
+    *'"method":"tools/list"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"query_reports","inputSchema":{"type":"object","properties":{"page_size":{"type":"integer"},"filter":{"type":"object","properties":{"program":{"type":"string"}}}}}}]}}'
+      ;;
+  esac
+done
+"#;
+
+/// Fake MCP child: completes the handshake, then never answers `tools/list`.
+const SILENT_SERVER: &str = r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fake","version":"0.0.0"}}}'
+      ;;
+  esac
+done
+"#;
+
+/// Write an executable fake server and return its path.
+fn fake_server(script: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "hackerone-mcp-fake-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).expect("create fake server dir");
+    let path = dir.join("fake-mcp");
+    std::fs::write(&path, script).expect("write fake server");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+        .expect("make fake server executable");
+    path
+}
+
+#[test]
+fn nested_schema_leak_fails_the_run_and_names_the_path() {
+    let server = fake_server(LEAKY_SERVER);
+    let output = Command::new(HARNESS)
+        .env_clear()
+        .env("HACKERONE_API_USERNAME", "user")
+        .env("HACKERONE_API_TOKEN", "token")
+        .env("HACKERONE_PROGRAM_HANDLE", "acme")
+        .args(["--server", server.to_str().unwrap()])
+        .output()
+        .expect("run query_reports harness");
+
+    assert!(!output.status.success(), "harness accepted a leaky schema");
+    let stderr = stderr(&output);
+    assert!(
+        stderr.contains("properties.filter.properties.program"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn unanswered_tools_list_times_out_instead_of_hanging() {
+    let server = fake_server(SILENT_SERVER);
+    let started = std::time::Instant::now();
+    let output = Command::new(HARNESS)
+        .env_clear()
+        .env("HACKERONE_API_USERNAME", "user")
+        .env("HACKERONE_API_TOKEN", "token")
+        .env("HACKERONE_PROGRAM_HANDLE", "acme")
+        .args([
+            "--server",
+            server.to_str().unwrap(),
+            "--timeout-seconds",
+            "1",
+        ])
+        .output()
+        .expect("run query_reports harness");
+
+    assert!(!output.status.success(), "harness reported success");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(stderr.contains("did not respond within 1s"), "{stderr}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "harness took {:?}",
+        started.elapsed()
+    );
+}

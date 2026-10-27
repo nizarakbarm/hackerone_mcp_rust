@@ -4,6 +4,8 @@
 //! body as [`serde_json::Value`]; typed models are a later ticket, and decoding into
 //! strict structs would turn sparse-but-valid payloads into failures.
 
+use std::time::Duration;
+
 use reqwest::header::ACCEPT;
 use reqwest::{Client as HttpClient, Method};
 use serde_json::Value;
@@ -11,6 +13,12 @@ use thiserror::Error;
 
 /// Default HackerOne API root.
 pub const DEFAULT_BASE_URL: &str = "https://api.hackerone.com/v1";
+
+/// Connect budget per request (ADR-0009).
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Per-request budget, not per tool call: one tool may issue many requests (ADR-0009).
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Which token pair a tool spends (ADR-0008).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,13 +125,32 @@ impl Client {
     ///
     /// Returns [`Error::Transport`] if the HTTP client (TLS backend) cannot be built.
     pub fn new(username: impl Into<String>, token: impl Into<String>) -> Result<Self, Error> {
-        let http = HttpClient::builder().build()?;
+        let http = HttpClient::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()?;
         Ok(Self {
             http,
             base_url: DEFAULT_BASE_URL.to_owned(),
             username: username.into(),
             token: token.into(),
         })
+    }
+
+    /// Test seam: rebuild the HTTP client with a shorter per-request timeout.
+    ///
+    /// Production timeouts are constants (ADR-0009); only tests call this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Transport`] if the HTTP client cannot be rebuilt.
+    #[doc(hidden)]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Result<Self, Error> {
+        self.http = HttpClient::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(timeout)
+            .build()?;
+        Ok(self)
     }
 
     /// Point the client at another API root (tests, proxies, future versions).
@@ -220,6 +247,12 @@ impl Client {
         query: &[(String, String)],
         body: Option<Value>,
     ) -> Result<Value, Error> {
+        if !path.starts_with('/') || path.contains("..") {
+            return Err(Error::Validation {
+                field: "path".to_owned(),
+                reason: format!("must be an absolute path without `..`: {path}"),
+            });
+        }
         let url = format!("{}{path}", self.base_url.trim_end_matches('/'));
         let mut request = self
             .http
