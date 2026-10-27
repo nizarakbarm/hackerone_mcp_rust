@@ -52,6 +52,59 @@ impl CredentialClass {
     }
 }
 
+/// A credential that never appears in `Debug` output (spec #35).
+///
+/// `Debug` prints one fixed marker and nothing else, so any struct holding a
+/// `Secret` can be logged or `dbg!`ed safely. There is deliberately no
+/// `Display`: the only way back to the value is [`Secret::expose`].
+///
+/// Construction is dumb and `Deserialize` is transparent, so a TOML section
+/// deserializes straight into `Option<Secret<String>>`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret<T>(T);
+
+impl Secret<String> {
+    /// The raw value. Every call is a deliberate leak path: headers only.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for Secret<String> {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for Secret<String> {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+/// `--flag TOKEN` parses without going through `String` first.
+impl std::str::FromStr for Secret<String> {
+    type Err = std::convert::Infallible;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self(value.to_owned()))
+    }
+}
+
+/// Transparent: the wrapper exists for `Debug`, not for the wire format.
+impl<'de> serde::Deserialize<'de> for Secret<String> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self)
+    }
+}
+
+impl<T> std::fmt::Debug for Secret<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 /// Failure of a HackerOne API call, one variant per cause (ADR-0003).
 #[derive(Debug, Error)]
 pub enum Error {
@@ -114,8 +167,8 @@ pub enum Error {
 pub struct Client {
     http: HttpClient,
     base_url: String,
-    username: String,
-    token: String,
+    username: Secret<String>,
+    token: Secret<String>,
 }
 
 impl Client {
@@ -124,7 +177,10 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`Error::Transport`] if the HTTP client (TLS backend) cannot be built.
-    pub fn new(username: impl Into<String>, token: impl Into<String>) -> Result<Self, Error> {
+    pub fn new(
+        username: impl Into<Secret<String>>,
+        token: impl Into<Secret<String>>,
+    ) -> Result<Self, Error> {
         let http = HttpClient::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
@@ -258,7 +314,7 @@ impl Client {
             .http
             .request(method, url)
             .header(ACCEPT, "application/json")
-            .basic_auth(&self.username, Some(&self.token))
+            .basic_auth(self.username.expose(), Some(self.token.expose()))
             .query(query);
         if let Some(body) = body {
             request = request.json(&body);

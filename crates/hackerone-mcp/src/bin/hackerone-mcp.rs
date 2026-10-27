@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use hackerone_api::Secret;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Transport {
@@ -18,7 +19,7 @@ struct Cli {
     api_username: Option<String>,
     /// HackerOne API token; prefer `HACKERONE_API_TOKEN` to avoid shell history.
     #[arg(long, value_name = "TOKEN")]
-    api_token: Option<String>,
+    api_token: Option<Secret<String>>,
     #[arg(long, value_name = "HANDLE")]
     program_handle: Option<String>,
     #[arg(long, value_name = "URL")]
@@ -73,5 +74,22 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("starting streamable HTTP MCP server");
             hackerone_mcp::serve_http(config).await
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Token-shaped fixture: distinctive, so a leak in the redaction test is obvious.
+    const TOKEN: &str = "tok_live_9f3";
+
+    #[test]
+    fn cli_debug_redacts_the_token() {
+        let cli = Cli::try_parse_from(["hackerone-mcp", "--api-token", TOKEN])
+            .expect("parse --api-token");
+        let printed = format!("{cli:?}");
+        assert!(printed.contains("<redacted>"), "marker missing: {printed}");
+        assert!(!printed.contains(TOKEN), "token leaked: {printed}");
     }
 }

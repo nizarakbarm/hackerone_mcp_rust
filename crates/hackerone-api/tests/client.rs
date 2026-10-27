@@ -1,6 +1,6 @@
 //! Wire-level tests for the HackerOne client against a fake API.
 
-use hackerone_api::{Client, Error};
+use hackerone_api::{Client, Error, Secret};
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -247,4 +247,34 @@ async fn absolute_path_is_sent() {
     let body = client(&server).get("/reports/1", &[], None).await.unwrap();
 
     assert_eq!(body, json!({"data": {"id": "1"}}));
+}
+
+/// Token-shaped fixture: distinctive, so a leak in a redaction test is obvious.
+const SECRET_TOKEN: &str = "tok_live_9f3";
+
+fn assert_redacted(printed: &str, what: &str) {
+    assert!(
+        printed.contains("<redacted>"),
+        "{what} lost the marker: {printed}"
+    );
+    assert!(
+        !printed.contains(SECRET_TOKEN),
+        "{what} leaked the value: {printed}"
+    );
+    assert!(
+        !printed.contains(&SECRET_TOKEN.len().to_string()),
+        "{what} leaked the length: {printed}"
+    );
+}
+
+#[test]
+fn secret_debug_prints_only_a_marker() {
+    let secret = Secret::from(SECRET_TOKEN);
+    assert_redacted(&format!("{secret:?}"), "Secret");
+}
+
+#[test]
+fn client_debug_hides_the_credential_pair() {
+    let client = Client::new(SECRET_TOKEN, SECRET_TOKEN).expect("client");
+    assert_redacted(&format!("{client:?}"), "Client");
 }

@@ -16,7 +16,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-use hackerone_api::{Client, CredentialClass, Error};
+use hackerone_api::{Client, CredentialClass, Error, Secret};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
@@ -67,12 +67,12 @@ impl Clients {
         Ok(Self {
             customer: build(
                 config.api_username.as_deref(),
-                config.api_token.as_deref(),
+                config.api_token.as_ref(),
                 base_url,
             )?,
             hacker: build(
                 config.hacker_api_username.as_deref(),
-                config.hacker_api_token.as_deref(),
+                config.hacker_api_token.as_ref(),
                 base_url,
             )?,
         })
@@ -91,13 +91,13 @@ impl Clients {
 /// A client only for a complete pair: half a pair is the same as none.
 fn build(
     username: Option<&str>,
-    token: Option<&str>,
+    token: Option<&Secret<String>>,
     base_url: Option<&str>,
 ) -> Result<Option<Client>, Error> {
     let (Some(username), Some(token)) = (username, token) else {
         return Ok(None);
     };
-    let client = Client::new(username, token)?;
+    let client = Client::new(username, token.clone())?;
     Ok(Some(match base_url {
         Some(base_url) => client.with_base_url(base_url),
         None => client,
@@ -234,7 +234,7 @@ pub async fn serve_http(config: Config) -> Result<(), Box<dyn std::error::Error>
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(address = %listener.local_addr()?, "serving MCP over streamable HTTP");
-    axum::serve(listener, router(token, service)).await?;
+    axum::serve(listener, router(token.expose().to_owned(), service)).await?;
     Ok(())
 }
 
@@ -313,7 +313,7 @@ mod tests {
         let sessions = Arc::new(LocalSessionManager::default());
         let clients = Clients::from_config(&Config {
             api_username: Some("user".to_owned()),
-            api_token: Some("token".to_owned()),
+            api_token: Some("token".into()),
             ..Config::default()
         })
         .expect("build clients");

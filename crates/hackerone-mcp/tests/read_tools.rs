@@ -23,7 +23,7 @@ fn client(server: &MockServer) -> Client {
 fn clients(server: &MockServer) -> Clients {
     Clients::from_config(&Config {
         api_username: Some("user".to_owned()),
-        api_token: Some("token".to_owned()),
+        api_token: Some("token".into()),
         base_url: Some(server.uri()),
         ..Config::default()
     })

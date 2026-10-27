@@ -22,9 +22,9 @@ const CUSTOMER_AUTH: &str = "Basic Y3VzdG9tZXItdXNlcjpjdXN0b21lci10b2tlbg==";
 fn clients(server: &MockServer) -> Clients {
     Clients::from_config(&Config {
         api_username: Some("customer-user".to_owned()),
-        api_token: Some("customer-token".to_owned()),
+        api_token: Some("customer-token".into()),
         hacker_api_username: Some("hacker-user".to_owned()),
-        hacker_api_token: Some("hacker-token".to_owned()),
+        hacker_api_token: Some("hacker-token".into()),
         base_url: Some(server.uri()),
         ..Config::default()
     })

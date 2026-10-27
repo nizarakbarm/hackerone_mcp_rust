@@ -10,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use hackerone_api::Secret;
 use serde::Deserialize;
 
 /// Env var holding the config directory (XDG base directory spec).
@@ -21,14 +22,14 @@ const ENV_HOME: &str = "HOME";
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Config {
     pub api_username: Option<String>,
-    pub api_token: Option<String>,
+    pub api_token: Option<Secret<String>>,
     /// Hacker-side token pair (ADR-0008); independent of the customer pair.
     pub hacker_api_username: Option<String>,
-    pub hacker_api_token: Option<String>,
+    pub hacker_api_token: Option<Secret<String>>,
     pub program_handle: Option<String>,
     pub base_url: Option<String>,
     pub bind: Option<String>,
-    pub http_token: Option<String>,
+    pub http_token: Option<Secret<String>>,
 }
 
 impl Config {
@@ -62,7 +63,7 @@ pub struct Flags {
     /// Explicit config file, highest precedence; missing/unreadable is fatal.
     pub config: Option<PathBuf>,
     pub api_username: Option<String>,
-    pub api_token: Option<String>,
+    pub api_token: Option<Secret<String>>,
     pub program_handle: Option<String>,
     pub base_url: Option<String>,
     pub bind: Option<String>,
@@ -119,13 +120,13 @@ where
     config.fill_from(Config::from(flags));
     config.fill_from(Config {
         api_username: var("HACKERONE_API_USERNAME"),
-        api_token: var("HACKERONE_API_TOKEN"),
+        api_token: var("HACKERONE_API_TOKEN").map(Secret::from),
         hacker_api_username: var("HACKERONE_HACKER_API_USERNAME"),
-        hacker_api_token: var("HACKERONE_HACKER_API_TOKEN"),
+        hacker_api_token: var("HACKERONE_HACKER_API_TOKEN").map(Secret::from),
         program_handle: var("HACKERONE_PROGRAM_HANDLE"),
         base_url: var("HACKERONE_API_BASE_URL"),
         bind: None,
-        http_token: var("HACKERONE_MCP_HTTP_TOKEN"),
+        http_token: var("HACKERONE_MCP_HTTP_TOKEN").map(Secret::from),
     });
     merge_if_present(&mut config, cwd.join("hackerone-mcp.toml"))?;
 
@@ -224,14 +225,14 @@ impl FileConfig {
 #[serde(deny_unknown_fields)]
 struct HackerApiSection {
     username: Option<String>,
-    token: Option<String>,
+    token: Option<Secret<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ApiSection {
     username: Option<String>,
-    token: Option<String>,
+    token: Option<Secret<String>>,
     program_handle: Option<String>,
     base_url: Option<String>,
 }
@@ -240,7 +241,7 @@ struct ApiSection {
 #[serde(deny_unknown_fields)]
 struct HttpSection {
     bind: Option<String>,
-    token: Option<String>,
+    token: Option<Secret<String>>,
 }
 
 #[cfg(test)]
@@ -331,19 +332,19 @@ token = "file-hacker-token"
         .expect("load explicit config");
 
         assert_eq!(config.api_username.as_deref(), Some("file-user"));
-        assert_eq!(config.api_token.as_deref(), Some("file-token"));
+        assert_eq!(config.api_token, Some(Secret::from("file-token")));
         assert_eq!(
             config.hacker_api_username.as_deref(),
             Some("file-hacker-user")
         );
         assert_eq!(
-            config.hacker_api_token.as_deref(),
-            Some("file-hacker-token")
+            config.hacker_api_token,
+            Some(Secret::from("file-hacker-token"))
         );
         assert_eq!(config.program_handle.as_deref(), Some("file-program"));
         assert_eq!(config.base_url.as_deref(), Some("https://file.example"));
         assert_eq!(config.bind.as_deref(), Some("127.0.0.1:9000"));
-        assert_eq!(config.http_token.as_deref(), Some("file-http-token"));
+        assert_eq!(config.http_token, Some(Secret::from("file-http-token")));
     }
 
     #[test]
@@ -378,7 +379,7 @@ token = "file-hacker-token"
 
         assert_eq!(config.api_username.as_deref(), Some("xdg-user"));
         assert_eq!(config.program_handle.as_deref(), Some("cwd-program"));
-        assert_eq!(config.api_token.as_deref(), Some("env-token"));
+        assert_eq!(config.api_token, Some(Secret::from("env-token")));
         assert_eq!(config.base_url.as_deref(), Some("https://flag.example"));
         assert_eq!(config.bind, None);
     }
@@ -435,7 +436,7 @@ token = "file-hacker-token"
             &HashMap::new(),
         )
         .expect("0600 secret is accepted");
-        assert_eq!(config.api_token.as_deref(), Some("secret"));
+        assert_eq!(config.api_token, Some(Secret::from("secret")));
     }
 
     #[test]
@@ -469,7 +470,7 @@ token = "file-hacker-token"
 
         let config = load_with(&dir, Flags::default(), &vars).expect("env-only config loads");
         assert_eq!(config.api_username.as_deref(), Some("env-user"));
-        assert_eq!(config.api_token.as_deref(), Some("env-token"));
+        assert_eq!(config.api_token, Some(Secret::from("env-token")));
         assert_eq!(config.program_handle, None);
     }
 
@@ -498,12 +499,15 @@ token = "file-hacker-token"
         .expect("load layered config");
 
         assert_eq!(config.api_username.as_deref(), Some("file-user"));
-        assert_eq!(config.api_token.as_deref(), Some("file-token"));
+        assert_eq!(config.api_token, Some(Secret::from("file-token")));
         assert_eq!(
             config.hacker_api_username.as_deref(),
             Some("file-hacker-user")
         );
-        assert_eq!(config.hacker_api_token.as_deref(), Some("env-hacker-token"));
+        assert_eq!(
+            config.hacker_api_token,
+            Some(Secret::from("env-hacker-token"))
+        );
         assert_eq!(config.base_url.as_deref(), Some("https://env.example"));
     }
 
@@ -551,5 +555,60 @@ token = "file-hacker-token"
             err,
             ConfigError::InsecurePermissions { mode: 0o644, .. }
         ));
+    }
+
+    /// Token-shaped fixture: distinctive, so a leak in a redaction test is obvious.
+    const TOKEN: &str = "tok_live_9f3";
+
+    fn assert_redacted(printed: &str, what: &str) {
+        assert!(
+            printed.contains("<redacted>"),
+            "{what} lost the marker: {printed}"
+        );
+        assert!(
+            !printed.contains(TOKEN),
+            "{what} leaked the value: {printed}"
+        );
+    }
+
+    #[test]
+    fn config_debug_redacts_every_token() {
+        let config = Config {
+            api_username: Some("customer-user".to_owned()),
+            api_token: Some(Secret::from(TOKEN)),
+            hacker_api_username: Some("hacker-user".to_owned()),
+            hacker_api_token: Some(Secret::from(TOKEN)),
+            program_handle: Some("prog".to_owned()),
+            base_url: Some("https://api.example".to_owned()),
+            bind: Some("127.0.0.1:9443".to_owned()),
+            http_token: Some(Secret::from(TOKEN)),
+        };
+        assert_redacted(&format!("{config:?}"), "Config");
+    }
+
+    #[test]
+    fn flags_debug_redacts_the_token() {
+        let flags = Flags {
+            api_token: Some(Secret::from(TOKEN)),
+            ..Flags::default()
+        };
+        assert_redacted(&format!("{flags:?}"), "Flags");
+    }
+
+    #[test]
+    fn toml_sections_deserialize_and_debug_redact_tokens() {
+        let file: FileConfig = toml::from_str(&format!(
+            "[api]\ntoken = \"{TOKEN}\"\n[hacker_api]\ntoken = \"{TOKEN}\"\n\
+             [http]\ntoken = \"{TOKEN}\"\n"
+        ))
+        .expect("transparent Deserialize fills the sections");
+
+        assert_eq!(file.api.token, Some(Secret::from(TOKEN)));
+        assert_eq!(file.hacker_api.token, Some(Secret::from(TOKEN)));
+        assert_eq!(file.http.token, Some(Secret::from(TOKEN)));
+        assert_redacted(&format!("{file:?}"), "FileConfig");
+        assert_redacted(&format!("{:?}", file.api), "ApiSection");
+        assert_redacted(&format!("{:?}", file.hacker_api), "HackerApiSection");
+        assert_redacted(&format!("{:?}", file.http), "HttpSection");
     }
 }

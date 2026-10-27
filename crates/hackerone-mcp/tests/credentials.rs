@@ -22,9 +22,9 @@ const HACKER_AUTH: &str = "Basic aGFja2VyLXVzZXI6aGFja2VyLXRva2Vu";
 fn config(server: &MockServer, customer: bool, hacker: bool) -> Config {
     Config {
         api_username: customer.then(|| "customer-user".to_owned()),
-        api_token: customer.then(|| "customer-token".to_owned()),
+        api_token: customer.then(|| "customer-token".into()),
         hacker_api_username: hacker.then(|| "hacker-user".to_owned()),
-        hacker_api_token: hacker.then(|| "hacker-token".to_owned()),
+        hacker_api_token: hacker.then(|| "hacker-token".into()),
         base_url: Some(server.uri()),
         ..Config::default()
     }
