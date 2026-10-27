@@ -57,3 +57,16 @@ It also exposes things that must not be handed to an unattended agent.
 - One binary serves both roles. The alternative — a mode switch forcing one credential — was
   rejected because the difference is a per-tool field, and two binaries would duplicate dispatch
   and transports.
+
+## Amendment (2026-10-27): where `CredentialClass` and its error live
+
+Adopted: `CredentialClass` and `Error::MissingCredential { class }` live in **`hackerone-api`**, next
+to `Client` and the rest of the error enum.
+
+Rejected: a server-local `ToolError` wrapper with the class defined in `hackerone-mcp`. It avoids an
+api-crate concept the transport layer does not act on, but it costs a second error type whose only
+job is to re-wrap every existing variant, and it splits the class enum from the client that consumes
+it. The api crate already carries policy-shaped variants (`Config`, `Validation`,
+`MissingProgramHandle`) for the same reason: one enum, one source of truth, and a `?` that never
+needs translation at the boundary. If the api crate ever ships as a standalone client, the class
+enum is one more piece of its config surface — not a dependency inversion.

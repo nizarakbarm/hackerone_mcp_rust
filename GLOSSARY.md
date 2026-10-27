@@ -24,6 +24,7 @@ Vocabulary for this repo. Use these terms in issues, specs, ADRs, test names, an
 - **MCP tool** — one JSON-Schema-described callable function advertising name, description, `inputSchema`. thirteen exist; their names, arguments, and response payloads are **parity-frozen** against the upstream Python server.
 - **Parity** — same tool name, same argument names/enums, same response body shape as `trailofbits/hackerone-mcp`. Response bodies are the raw HackerOne JSON, pretty-printed into `content[0].text`.
 - **Wart fix** — a deliberate, listed departure from parity (see ADR-0001). Anything not on that list stays parity.
+- **Credential class** — the token pair a tool spends, declared per registry entry: `Customer` (`HACKERONE_API_*`, program side) or `Hacker` (`HACKERONE_HACKER_API_*`, `/v1/hackers/*`). A missing pair fails that tool's call with `MissingCredential`, never startup; a tool can only ever reach the client of its own class (ADR-0008).
 - **Transport** — how MCP clients reach the server: `stdio` (default, no auth) or `streamable-http` (bearer-gated).
 - **Bearer gate** — the `Authorization: Bearer <token>` check on the HTTP transport, using `HACKERONE_MCP_HTTP_TOKEN`. Always required, including on loopback.
 - **api crate** — `crates/hackerone-api`: typed HackerOne REST client + error enum. No MCP types.

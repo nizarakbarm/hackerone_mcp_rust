@@ -30,8 +30,8 @@ impl Server {
         Self::spawn(environment, true)
     }
 
-    /// Same binary with no API credentials configured: startup must fail
-    /// loudly instead of serving tools that cannot work.
+    /// Same binary with no API credentials configured: startup must still
+    /// succeed and advertise every tool (ADR-0008).
     fn start_without_credentials(environment: &[(&str, &str)]) -> Self {
         Self::spawn(environment, false)
     }
@@ -188,7 +188,14 @@ fn stdio_handshake_advertises_only_the_wired_tools() {
             "update_cves",
             "escalate_report",
             "remove_escalation",
-            "update_custom_field_values"
+            "update_custom_field_values",
+            "search_programs",
+            "get_program",
+            "get_program_structured_scopes",
+            "get_program_scope_exclusions",
+            "get_program_weaknesses",
+            "list_my_reports",
+            "search_hacktivity"
         ],
         "tools: {tools}"
     );
@@ -209,7 +216,7 @@ fn stdio_handshake_advertises_only_the_wired_tools() {
 fn stdout_is_jsonrpc_only_and_logs_go_to_stderr() {
     let mut server = Server::start();
     server.handshake();
-    assert_eq!(server.list_tools().as_array().map(Vec::len), Some(13));
+    assert_eq!(server.list_tools().as_array().map(Vec::len), Some(20));
     let (stdout, stderr) = server.finish();
 
     assert!(!stdout.is_empty(), "no stdout frames were produced");
@@ -338,7 +345,7 @@ fn advertised_schemas_never_expose_program_scope_at_any_depth() {
     server.handshake();
     let tools = server.list_tools();
     let tools = tools.as_array().expect("tools array");
-    assert_eq!(tools.len(), 13, "walk the full registry, not a subset");
+    assert_eq!(tools.len(), 20, "walk the full registry, not a subset");
     for tool in tools {
         walk(
             &tool["inputSchema"],
@@ -350,10 +357,10 @@ fn advertised_schemas_never_expose_program_scope_at_any_depth() {
 }
 
 #[test]
-fn stdout_stays_jsonrpc_only_on_error_paths_and_failed_startup() {
+fn stdout_stays_jsonrpc_only_on_error_paths() {
     // Mutation: a `println!` (or any stdout log) on a validation error, an
-    // unknown tool, or the missing-credential startup path leaves a non-JSON
-    // line here and the test fails.
+    // unknown tool, or a missing-credential call leaves a non-JSON line here
+    // and the test fails.
     let mut server = Server::start();
     server.handshake();
     server.list_tools();
@@ -378,12 +385,46 @@ fn stdout_stays_jsonrpc_only_on_error_paths_and_failed_startup() {
             .unwrap_or_else(|err| panic!("stdout line is not JSON: {line:?}: {err}"));
     }
 
-    let (stdout, stderr, status) = Server::start_without_credentials(&[]).finish_with_status();
-    assert!(!status.success(), "missing credentials must abort startup");
-    assert!(stdout.is_empty(), "no frame may be written: {stdout:?}");
+    // Hacker credentials only: the server still starts and advertises every
+    // tool; a customer-class call fails as `isError`, never as a startup abort
+    // (ADR-0008).
+    let mut server = Server::start_without_credentials(&[
+        ("HACKERONE_HACKER_API_USERNAME", "hacker-user"),
+        ("HACKERONE_HACKER_API_TOKEN", "hacker-token"),
+    ]);
+    server.handshake();
+    assert_eq!(
+        server.list_tools().as_array().expect("tools").len(),
+        20,
+        "every tool stays advertised without any credentials"
+    );
+    let missing = server.call_tool(3, "get_report", json!({"report_id": 7}));
+    assert_eq!(missing["isError"], true, "{missing}");
     assert!(
-        stderr.contains("HACKERONE_API_USERNAME"),
-        "startup failure not reported on stderr: {stderr:?}"
+        missing["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("missing customer credential")),
+        "{missing}"
+    );
+
+    let (stdout, _) = server.finish();
+    for line in &stdout {
+        serde_json::from_str::<Value>(line)
+            .unwrap_or_else(|err| panic!("stdout line is not JSON: {line:?}: {err}"));
+    }
+}
+
+#[test]
+fn version_flag_works_without_credentials() {
+    let output = Command::new(env!("CARGO_BIN_EXE_hackerone-mcp"))
+        .arg("--version")
+        .env_clear()
+        .output()
+        .expect("run --version");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("hackerone-mcp {}", env!("CARGO_PKG_VERSION"))
     );
 }
 

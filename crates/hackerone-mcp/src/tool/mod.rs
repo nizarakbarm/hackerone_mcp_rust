@@ -10,26 +10,36 @@ pub mod change_state;
 pub mod create_comment;
 pub mod create_report;
 pub mod escalate_report;
+pub mod get_program;
+pub mod get_program_scope_exclusions;
+pub mod get_program_structured_scopes;
+pub mod get_program_weaknesses;
 pub mod get_report;
 pub mod get_report_custom_field_values;
+pub mod list_my_reports;
 pub mod list_scopes;
 pub mod params;
 pub mod query_reports;
 pub mod remove_escalation;
 pub mod schema;
 pub mod scope;
+pub mod search_hacktivity;
+pub mod search_programs;
 pub mod update_custom_field_values;
 pub mod update_cves;
 pub mod update_reference;
 pub mod update_title;
 
-use hackerone_api::{Client, Error};
+use hackerone_api::{CredentialClass, Error};
 use serde::de::Error as _;
 use serde_json::{Map, Value};
 
+use crate::Clients;
+
 use scope::ProgramScope;
 
-/// The thirteen MCP tools, in upstream `tools/list` order.
+/// The MCP tools: the upstream thirteen first, then the hacker-side tools
+/// appended in the order ADR-0008 introduced them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolName {
     GetReport,
@@ -45,11 +55,19 @@ pub enum ToolName {
     EscalateReport,
     RemoveEscalation,
     UpdateCustomFieldValues,
+    SearchPrograms,
+    GetProgram,
+    GetProgramStructuredScopes,
+    GetProgramScopeExclusions,
+    GetProgramWeaknesses,
+    ListMyReports,
+    SearchHacktivity,
 }
 
 impl ToolName {
-    /// Every tool, in the order upstream advertises them.
-    pub const ALL: [Self; 13] = [
+    /// Every tool, in advertised order: upstream's thirteen, then the
+    /// hacker-side reads.
+    pub const ALL: [Self; 20] = [
         Self::GetReport,
         Self::GetReportCustomFieldValues,
         Self::CreateReport,
@@ -63,6 +81,13 @@ impl ToolName {
         Self::EscalateReport,
         Self::RemoveEscalation,
         Self::UpdateCustomFieldValues,
+        Self::SearchPrograms,
+        Self::GetProgram,
+        Self::GetProgramStructuredScopes,
+        Self::GetProgramScopeExclusions,
+        Self::GetProgramWeaknesses,
+        Self::ListMyReports,
+        Self::SearchHacktivity,
     ];
 
     /// Wire name as it appears in `tools/list` and `tools/call`.
@@ -82,6 +107,13 @@ impl ToolName {
             Self::EscalateReport => "escalate_report",
             Self::RemoveEscalation => "remove_escalation",
             Self::UpdateCustomFieldValues => "update_custom_field_values",
+            Self::SearchPrograms => "search_programs",
+            Self::GetProgram => "get_program",
+            Self::GetProgramStructuredScopes => "get_program_structured_scopes",
+            Self::GetProgramScopeExclusions => "get_program_scope_exclusions",
+            Self::GetProgramWeaknesses => "get_program_weaknesses",
+            Self::ListMyReports => "list_my_reports",
+            Self::SearchHacktivity => "search_hacktivity",
         }
     }
 
@@ -96,12 +128,42 @@ impl ToolName {
     pub fn schema(self) -> Value {
         schema::schema(self)
     }
+
+    /// Credential class this tool spends (ADR-0008).
+    ///
+    /// Exhaustive, so a new variant cannot compile without stating its class.
+    #[must_use]
+    pub const fn class(self) -> CredentialClass {
+        match self {
+            Self::GetReport
+            | Self::GetReportCustomFieldValues
+            | Self::CreateReport
+            | Self::QueryReports
+            | Self::ListScopes
+            | Self::ChangeState
+            | Self::CreateComment
+            | Self::UpdateTitle
+            | Self::UpdateReference
+            | Self::UpdateCves
+            | Self::EscalateReport
+            | Self::RemoveEscalation
+            | Self::UpdateCustomFieldValues => CredentialClass::Customer,
+            Self::SearchPrograms
+            | Self::GetProgram
+            | Self::GetProgramStructuredScopes
+            | Self::GetProgramScopeExclusions
+            | Self::GetProgramWeaknesses
+            | Self::ListMyReports
+            | Self::SearchHacktivity => CredentialClass::Hacker,
+        }
+    }
 }
 
-/// Tools whose `run` exists, in upstream order, with their advertised
-/// descriptions: the only tools `tools/list` may advertise. All thirteen are
-/// wired, so every name `ToolName` knows is also advertised and dispatchable.
-pub const WIRED: [(ToolName, &str); 13] = [
+/// Tools whose `run` exists, in advertised order, with their advertised
+/// descriptions and credential class: the only tools `tools/list` may
+/// advertise, and the authority `dispatch` uses to pick a client (ADR-0008).
+/// Every name `ToolName` knows is wired.
+pub const WIRED: [(ToolName, &str); 20] = [
     (
         ToolName::GetReport,
         "Fetch a single HackerOne report by ID.",
@@ -155,16 +217,57 @@ pub const WIRED: [(ToolName, &str); 13] = [
         ToolName::UpdateCustomFieldValues,
         "Set custom field values on a report.",
     ),
+    (
+        ToolName::SearchPrograms,
+        "Search the HackerOne program directory. The API has no server-side filters or sort, so \
+         offers_bounties, state and submission_state are matched client-side over a capped scan of \
+         at most max_pages pages (default 5, cap 20). A result with truncated true means the scan \
+         budget ran out while more directory pages existed; it does not mean more matches exist.",
+    ),
+    (
+        ToolName::GetProgram,
+        "Fetch one HackerOne program by handle, including offers_bounties, policy and \
+         submission_state.",
+    ),
+    (
+        ToolName::GetProgramStructuredScopes,
+        "List a program's structured scopes with id and timestamp filters. The API returns at most \
+         10 000 scopes per query; to read beyond that cap, pass scope_id_gt set to the last scope ID \
+         seen and repeat.",
+    ),
+    (
+        ToolName::GetProgramScopeExclusions,
+        "List a program's scope exclusions: the report categories it never rewards, in \
+         addition to core ineligible findings.",
+    ),
+    (
+        ToolName::GetProgramWeaknesses,
+        "List the weaknesses (CWEs) a program accepts, with page_number and page_size \
+         (1-100, default 25).",
+    ),
+    (
+        ToolName::ListMyReports,
+        "List the authenticated hacker's own reports, with page_number and page_size \
+         (1-100, default 25).",
+    ),
+    (
+        ToolName::SearchHacktivity,
+        "Search public HackerOne hacktivity with an Apache Lucene queryString (for example \
+         'severity_rating:critical AND disclosed:true'), sorted by sort (default \
+         -latest_disclosable_activity_at) and paginated.",
+    ),
 ];
 
-/// Route one `tools/call` to the tool that owns its body (ADR-0007).
+/// Route one `tools/call` to the tool that owns its body (ADR-0007), spending
+/// the client for the tool's credential class (ADR-0008).
 ///
 /// # Errors
 ///
-/// Every failure a tool body produces, plus [`Error::Validation`] for an unknown
-/// or not-yet-wired tool name.
+/// Every failure a tool body produces, [`Error::MissingCredential`] when the
+/// tool's class has no configured token pair, plus [`Error::Validation`] for an
+/// unknown tool name.
 pub async fn dispatch(
-    client: &Client,
+    clients: &Clients,
     scope: &ProgramScope,
     name: &str,
     args: &Map<String, Value>,
@@ -175,6 +278,10 @@ pub async fn dispatch(
             reason: format!("unknown tool: {name}"),
         });
     };
+    let class = tool.class();
+    let client = clients
+        .for_class(class)
+        .ok_or(Error::MissingCredential { class })?;
     match tool {
         ToolName::GetReport => get_report::run(client, args).await,
         ToolName::GetReportCustomFieldValues => {
@@ -191,6 +298,17 @@ pub async fn dispatch(
         ToolName::EscalateReport => escalate_report::run(client, args).await,
         ToolName::RemoveEscalation => remove_escalation::run(client, args).await,
         ToolName::UpdateCustomFieldValues => update_custom_field_values::run(client, args).await,
+        ToolName::SearchPrograms => search_programs::run(client, args).await,
+        ToolName::GetProgram => get_program::run(client, args).await,
+        ToolName::GetProgramStructuredScopes => {
+            get_program_structured_scopes::run(client, args).await
+        }
+        ToolName::GetProgramScopeExclusions => {
+            get_program_scope_exclusions::run(client, args).await
+        }
+        ToolName::GetProgramWeaknesses => get_program_weaknesses::run(client, args).await,
+        ToolName::ListMyReports => list_my_reports::run(client, args).await,
+        ToolName::SearchHacktivity => search_hacktivity::run(client, args).await,
     }
 }
 
@@ -216,6 +334,17 @@ pub(crate) fn decode_error(path: &str, reason: &str) -> Error {
     Error::Decode(serde_json::Error::custom(format!(
         "malformed payload at {path}: {reason}"
     )))
+}
+
+/// Map a 404 from a `{handle}` address to [`Error::ProgramNotFound`]; every
+/// other failure passes through untouched.
+pub(crate) fn not_found(handle: &str, error: Error) -> Error {
+    match error {
+        Error::Api { status: 404, .. } => Error::ProgramNotFound {
+            handle: handle.to_owned(),
+        },
+        other => other,
+    }
 }
 
 /// Canonical report states (upstream order); drives schema and validation.

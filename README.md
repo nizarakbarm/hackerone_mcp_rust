@@ -31,11 +31,19 @@ All paths are relative to `https://api.hackerone.com/v1`.
 | `escalate_report` | `POST /reports/{report_id}/escalate` | Escalate a report with an integration ID. |
 | `remove_escalation` | `DELETE /reports/{report_id}/escalate` | Remove an escalation. |
 | `update_custom_field_values` | `POST /reports/{report_id}/custom_field_values` | Set custom field values from a typed `custom_fields` map; returns a per-key result. |
+| `search_programs` | `GET /hackers/programs` | Scan up to 20 directory pages (default 5) and filter `offers_bounties`/`state`/`submission_state` client-side; reports truncation when the budget ended with pages left. |
+| `get_program` | `GET /hackers/programs/{handle}` | Fetch one program by handle (bounty signals, policy, submission state). |
+| `get_program_structured_scopes` | `GET /hackers/programs/{handle}/structured_scopes` | List a program's structured scopes; documents the 10 000-item API cap and `scope_id_gt` paging beyond it. |
+| `get_program_scope_exclusions` | `GET /hackers/programs/{handle}/scope_exclusions` | List the report categories a program never rewards, beyond core ineligible findings. |
+| `get_program_weaknesses` | `GET /hackers/programs/{handle}/weaknesses` | List a program's accepted weaknesses (CWEs), paginated. |
+| `list_my_reports` | `GET /hackers/me/reports` | List the authenticated hacker's own reports, paginated. |
+| `search_hacktivity` | `GET /hackers/hacktivity` | Search public hacktivity with a verbatim Apache Lucene `queryString`; `sort` defaults to `-latest_disclosable_activity_at`. |
 
 `query_reports` and `list_scopes` always scope results to the configured
 program handle; no tool accepts a program/team-handle argument. `list_scopes`
 resolves the handle to a program ID by following `links.next` on
-`/me/programs`.
+`/me/programs`. The `hacker` tools spend the hacker token pair, not the customer pair;
+the program-scoped ones take an explicit `handle`.
 
 ## Prerequisites
 
@@ -126,8 +134,8 @@ hackerone-mcp --transport http
   loopback address behind a TLS-terminating reverse proxy. `--bind` to a
   non-loopback address logs a warning at startup.
 - The upstream HackerOne credentials come from the configuration layers below,
-  not from the incoming `Authorization` header. One process serves one
-  HackerOne identity and one program.
+  not from the incoming `Authorization` header. One process serves one customer
+  identity, one optional hacker identity, and one program.
 
 ## Configuration
 
@@ -140,12 +148,19 @@ CLI flags: `--config`, `--api-username`, `--api-token`, `--program-handle`,
 
 | Variable | Meaning |
 |---|---|
-| `HACKERONE_API_USERNAME` | API identifier used as the HTTP Basic username. Required. |
-| `HACKERONE_API_TOKEN` | API token used as the HTTP Basic password. Required. |
+| `HACKERONE_API_USERNAME` | Customer (program-side) API identifier, HTTP Basic username. Required by the customer-side tools; when missing, those calls fail with `missing customer credential`. |
+| `HACKERONE_API_TOKEN` | Customer API token, HTTP Basic password. |
+| `HACKERONE_HACKER_API_USERNAME` | Hacker-side API identifier (`/v1/hackers/*`). Required only by hacker-class tools. |
+| `HACKERONE_HACKER_API_TOKEN` | Hacker-side API token. |
 | `HACKERONE_PROGRAM_HANDLE` | Program handle; required by `create_report`, `query_reports`, and `list_scopes`. |
-| `HACKERONE_API_BASE_URL` | API root, default `https://api.hackerone.com/v1`. |
+| `HACKERONE_API_BASE_URL` | API root for both credential classes, default `https://api.hackerone.com/v1`. |
 | `HACKERONE_MCP_HTTP_TOKEN` | Bearer token for `--transport http`; required there. |
 | `RUST_LOG` | `tracing` filter, default `info`. Logs always go to stderr. |
+
+All thirteen shipped tools spend the **customer** pair. A tool whose class has no
+configured pair is still advertised by `tools/list`; calling it returns
+`isError` with the missing environment variables named. Startup never requires
+credentials.
 
 Config file shape (unknown keys are rejected):
 
@@ -155,6 +170,10 @@ username = "your-api-username"
 token = "your-api-token"
 program_handle = "your-program-handle"
 # base_url = "https://api.hackerone.com/v1"
+
+[hacker_api]
+# username = "your-hacker-username"
+# token = "your-hacker-token"
 
 [http]
 # bind = "127.0.0.1:8765"
@@ -195,7 +214,7 @@ Add `--raw` for the full JSON payload. Other flags: `--page-number`,
 | Transport | stdio only. | stdio plus bearer-gated streamable HTTP on `127.0.0.1:8765/mcp` by default. |
 | Tracing / redaction | Python logging. | `tracing` to stderr with an `RUST_LOG` filter; no credential, token, or `Authorization` value appears in a log statement. |
 | AGPL attribution | AGPL-3.0-or-later, Trail of Bits. | Same license; this port credits Trail of Bits in this README and ships the upstream license text. |
-| Hacker-side surface | none. | **Planned, not shipped:** seven read-only `/hackers/*` tools (program lookup, scope, exclusions, weaknesses, my reports, hacktivity) behind a second credential class — see [ADR-0008](docs/adr/0008-hacker-side-surface.md) and [docs/hacker-api-surface.md](docs/hacker-api-surface.md), which also records what was rejected and why. |
+| Hacker-side surface | none. | **Partly shipped:** the three program reads (`search_programs`, `get_program`, `get_program_structured_scopes`) behind a second credential class; the remaining four read-only `/hackers/*` tools are still planned — see [ADR-0008](docs/adr/0008-hacker-side-surface.md) and [docs/hacker-api-surface.md](docs/hacker-api-surface.md), which also record what was rejected and why. |
 
 ## Development
 

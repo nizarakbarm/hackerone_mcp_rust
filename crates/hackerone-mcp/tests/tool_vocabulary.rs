@@ -2,7 +2,7 @@
 //! validation errors, schema parity with upstream, and the program-scope
 //! guarantee from ADR-0001 (wart fix 6).
 
-use hackerone_api::Error;
+use hackerone_api::{CredentialClass, Error};
 use hackerone_mcp::tool::{
     self, ArrayFilterKind, LIST_SCOPES_DATE_FILTERS, QUERY_REPORT_ARRAY_FILTERS,
     QUERY_REPORT_DATE_FILTERS, REPORT_STATES, SEVERITIES, SORT_FIELDS, SORT_ORDERS, ToolName,
@@ -42,7 +42,7 @@ fn validation_field(error: Error) -> String {
 }
 
 #[test]
-fn tool_names_are_the_upstream_thirteen() {
+fn tool_names_are_all_advertised_in_order() {
     let expected = [
         "get_report",
         "get_report_custom_field_values",
@@ -57,6 +57,13 @@ fn tool_names_are_the_upstream_thirteen() {
         "escalate_report",
         "remove_escalation",
         "update_custom_field_values",
+        "search_programs",
+        "get_program",
+        "get_program_structured_scopes",
+        "get_program_scope_exclusions",
+        "get_program_weaknesses",
+        "list_my_reports",
+        "search_hacktivity",
     ];
 
     assert_eq!(ToolName::ALL.len(), expected.len());
@@ -70,14 +77,14 @@ fn tool_names_are_the_upstream_thirteen() {
 #[test]
 fn schemas_match_upstream_byte_for_byte() {
     let upstream: Vec<Value> = serde_json::from_str(UPSTREAM_SCHEMAS).expect("fixture parses");
-    assert_eq!(upstream.len(), ToolName::ALL.len());
+    assert_eq!(upstream.len(), 13, "the fixture is the upstream thirteen");
 
     for entry in upstream {
         let name = entry["name"].as_str().expect("fixture tool name");
         let tool = ToolName::from_wire(name).expect("fixture tool exists");
         assert_eq!(
-            tool.schema(),
-            entry["inputSchema"],
+            serde_json::to_string(&tool.schema()).expect("serialize schema"),
+            serde_json::to_string(&entry["inputSchema"]).expect("serialize fixture"),
             "schema drift for {name}"
         );
     }
@@ -520,7 +527,7 @@ fn list_scopes_emits_filters_and_rejects_negative_ids() {
 }
 
 #[test]
-fn every_tool_variant_is_wired_exactly_once_in_upstream_order() {
+fn every_tool_variant_is_wired_exactly_once_in_advertised_order() {
     assert_eq!(tool::WIRED.len(), ToolName::ALL.len());
 
     for variant in ToolName::ALL {
@@ -533,6 +540,19 @@ fn every_tool_variant_is_wired_exactly_once_in_upstream_order() {
 
     let wired: Vec<ToolName> = tool::WIRED.iter().map(|(tool, _)| *tool).collect();
     assert_eq!(wired, ToolName::ALL.to_vec());
+}
+
+#[test]
+fn every_shipped_tool_declares_its_credential_class() {
+    let customer_tools = 13;
+    for (index, tool) in ToolName::ALL.into_iter().enumerate() {
+        let expected = if index < customer_tools {
+            CredentialClass::Customer
+        } else {
+            CredentialClass::Hacker
+        };
+        assert_eq!(tool.class(), expected, "{}", tool.name());
+    }
 }
 
 #[test]

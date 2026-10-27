@@ -182,7 +182,7 @@ async fn bearer_gate_rejects_before_any_session_and_admits_the_right_token() {
     assert_eq!(listed.status(), reqwest::StatusCode::OK);
     let tools =
         sse_frame(&listed.text().await.expect("tools/list body"), 2)["result"]["tools"].clone();
-    assert_eq!(tools.as_array().expect("tools array").len(), 13);
+    assert_eq!(tools.as_array().expect("tools array").len(), 20);
 }
 
 #[tokio::test]

@@ -16,7 +16,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-use hackerone_api::{Client, Error};
+use hackerone_api::{Client, CredentialClass, Error};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
@@ -42,11 +42,73 @@ pub const HTTP_TOKEN_VAR: &str = "HACKERONE_MCP_HTTP_TOKEN";
 use crate::config::Config;
 use crate::tool::scope::ProgramScope;
 
-/// MCP server: one API client plus the configured program, routing
+/// One API client per credential class, built once at startup (ADR-0008).
+///
+/// A class exists only when both halves of its token pair are configured. A
+/// missing pair is not a startup failure: a tool of that class fails at call
+/// time with [`hackerone_api::Error::MissingCredential`], so the other class
+/// keeps working and `tools/list` is unaffected.
+#[derive(Debug, Clone, Default)]
+pub struct Clients {
+    customer: Option<Client>,
+    hacker: Option<Client>,
+}
+
+impl Clients {
+    /// Build the configured class clients. Both use `HACKERONE_API_BASE_URL`
+    /// when set, so a proxy or fake API covers both classes; otherwise each
+    /// defaults to the HackerOne API root.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Transport`] if an HTTP client cannot be built.
+    pub fn from_config(config: &Config) -> Result<Self, Error> {
+        let base_url = config.base_url.as_deref();
+        Ok(Self {
+            customer: build(
+                config.api_username.as_deref(),
+                config.api_token.as_deref(),
+                base_url,
+            )?,
+            hacker: build(
+                config.hacker_api_username.as_deref(),
+                config.hacker_api_token.as_deref(),
+                base_url,
+            )?,
+        })
+    }
+
+    /// Client for `class`, or `None` when that class was not configured.
+    #[must_use]
+    pub fn for_class(&self, class: CredentialClass) -> Option<&Client> {
+        match class {
+            CredentialClass::Customer => self.customer.as_ref(),
+            CredentialClass::Hacker => self.hacker.as_ref(),
+        }
+    }
+}
+
+/// A client only for a complete pair: half a pair is the same as none.
+fn build(
+    username: Option<&str>,
+    token: Option<&str>,
+    base_url: Option<&str>,
+) -> Result<Option<Client>, Error> {
+    let (Some(username), Some(token)) = (username, token) else {
+        return Ok(None);
+    };
+    let client = Client::new(username, token)?;
+    Ok(Some(match base_url {
+        Some(base_url) => client.with_base_url(base_url),
+        None => client,
+    }))
+}
+
+/// MCP server: the class clients plus the configured program, routing
 /// `tools/call` through [`tool::dispatch`] (ADR-0007).
 #[derive(Clone)]
 pub struct HackerOneServer {
-    client: Client,
+    clients: Clients,
     /// Shared by every session the same process serves, so the resolved
     /// program id outlives a connection.
     scope: Arc<ProgramScope>,
@@ -54,8 +116,8 @@ pub struct HackerOneServer {
 
 impl HackerOneServer {
     #[must_use]
-    pub fn new(client: Client, scope: Arc<ProgramScope>) -> Self {
-        Self { client, scope }
+    pub fn new(clients: Clients, scope: Arc<ProgramScope>) -> Self {
+        Self { clients, scope }
     }
 }
 
@@ -86,7 +148,7 @@ impl ServerHandler for HackerOneServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = request.arguments.unwrap_or_default();
-        let result = tool::dispatch(&self.client, &self.scope, &request.name, &args).await;
+        let result = tool::dispatch(&self.clients, &self.scope, &request.name, &args).await;
         Ok(match result {
             Ok(value) => CallToolResult::success(vec![ContentBlock::text(pretty(&value))]),
             // Failed tool call, not a protocol error: the client sees the cause.
@@ -109,32 +171,6 @@ fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
-/// Build the API client from layered config. Missing credentials are fatal:
-/// every tool would fail, so refusing to start is the honest answer.
-///
-/// # Errors
-///
-/// [`Error::Config`] for a missing credential, [`Error::Transport`] if the HTTP
-/// client cannot be built.
-fn client(config: &Config) -> Result<Client, Error> {
-    let credential = |field: &str, value: &Option<String>| {
-        value
-            .as_deref()
-            .map(str::to_owned)
-            .ok_or_else(|| Error::Config {
-                field: field.to_owned(),
-                reason: "is required".to_owned(),
-            })
-    };
-    let username = credential("HACKERONE_API_USERNAME", &config.api_username)?;
-    let token = credential("HACKERONE_API_TOKEN", &config.api_token)?;
-    let client = Client::new(username, token)?;
-    Ok(match &config.base_url {
-        Some(base_url) => client.with_base_url(base_url.clone()),
-        None => client,
-    })
-}
-
 /// Install stderr-only logging (`RUST_LOG`, default `info`).
 ///
 /// stdout is the JSON-RPC channel in stdio mode and must stay clean.
@@ -153,9 +189,9 @@ pub fn init_tracing() {
 /// [`Error::Config`] / [`Error::Transport`] from client construction, or the
 /// transport failure that ended the session.
 pub async fn serve_stdio(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let client = client(&config)?;
+    let clients = Clients::from_config(&config)?;
     let scope = Arc::new(ProgramScope::new(config.program_handle.clone()));
-    let service = HackerOneServer::new(client, scope).serve(stdio()).await?;
+    let service = HackerOneServer::new(clients, scope).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }
@@ -175,7 +211,7 @@ pub async fn serve_http(config: Config) -> Result<(), Box<dyn std::error::Error>
         reason: "is required for --transport http".to_owned(),
     })?;
     let addr = bind_addr(&config)?;
-    let client = client(&config)?;
+    let clients = Clients::from_config(&config)?;
     let sessions = Arc::new(LocalSessionManager::default());
 
     // Non-loopback binds are reached by a proxy, whose `Host` header is its own.
@@ -191,7 +227,7 @@ pub async fn serve_http(config: Config) -> Result<(), Box<dyn std::error::Error>
     // One scope for the process: every session shares the resolved program id.
     let scope = Arc::new(ProgramScope::new(config.program_handle.clone()));
     let service = StreamableHttpService::new(
-        move || Ok(HackerOneServer::new(client.clone(), Arc::clone(&scope))),
+        move || Ok(HackerOneServer::new(clients.clone(), Arc::clone(&scope))),
         sessions.clone(),
         StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts),
     );
@@ -275,11 +311,16 @@ mod tests {
     #[tokio::test]
     async fn rejected_request_creates_no_session() {
         let sessions = Arc::new(LocalSessionManager::default());
-        let client = Client::new("user", "token").expect("build client");
+        let clients = Clients::from_config(&Config {
+            api_username: Some("user".to_owned()),
+            api_token: Some("token".to_owned()),
+            ..Config::default()
+        })
+        .expect("build clients");
         let service = StreamableHttpService::new(
             move || {
                 Ok(HackerOneServer::new(
-                    client.clone(),
+                    clients.clone(),
                     Arc::new(ProgramScope::new(None)),
                 ))
             },
