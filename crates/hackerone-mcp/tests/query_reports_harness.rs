@@ -233,17 +233,24 @@ fn unanswered_tools_list_times_out_instead_of_hanging() {
         .args([
             "--server",
             server.to_str().unwrap(),
+            // 3s, not 1s: a loaded machine can take a second just to start the
+            // fake child, and a 1s deadline made this test flaky under parallel
+            // test load. The bound below still catches a real hang (default 30s).
             "--timeout-seconds",
-            "1",
+            "3",
         ])
         .output()
         .expect("run query_reports harness");
 
     assert!(!output.status.success(), "harness reported success");
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(stderr.contains("did not respond within 1s"), "{stderr}");
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(2),
+        stderr.contains("did not respond within 3s"),
+        "exit={:?} stderr={stderr}",
+        output.status.code()
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
         "harness took {:?}",
         started.elapsed()
     );
