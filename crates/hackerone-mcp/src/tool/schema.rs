@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use super::{
     ArrayFilterKind, LIST_SCOPES_DATE_FILTERS, QUERY_REPORT_ARRAY_FILTERS,
     QUERY_REPORT_DATE_FILTERS, REPORT_STATES, SEVERITIES, SORT_FIELDS, SORT_ORDERS, ToolName,
+    params::MAX_PROGRAM_SCAN_PAGES,
 };
 
 /// `inputSchema` for `tool`.
@@ -29,6 +30,9 @@ pub fn schema(tool: ToolName) -> Value {
         ToolName::EscalateReport => escalate_report(),
         ToolName::RemoveEscalation => remove_escalation(),
         ToolName::UpdateCustomFieldValues => update_custom_field_values(),
+        ToolName::SearchPrograms => search_programs(),
+        ToolName::GetProgram => get_program(),
+        ToolName::GetProgramStructuredScopes => get_program_structured_scopes(),
     }
 }
 
@@ -103,6 +107,69 @@ fn object_param(description: &str) -> Value {
         "description": description,
         "additionalProperties": {"type": "string"},
     })
+}
+
+fn search_programs() -> Value {
+    closed_object(json!({
+        "page_size": int_param(
+            "Number of programs per directory page (1-100). Defaults 25.",
+            Some(1),
+            Some(100),
+        ),
+        "max_pages": int_param(
+            "Maximum directory pages to scan (1-20). Defaults 5. The directory has no \
+             server-side filters, so filters only ever see the pages scanned.",
+            Some(1),
+            Some(MAX_PROGRAM_SCAN_PAGES),
+        ),
+        "offers_bounties": bool_param(
+            "Only keep programs whose offers_bounties matches (client-side).",
+        ),
+        "state": str_param("Only keep programs whose state matches (client-side)."),
+        "submission_state": str_param(
+            "Only keep programs whose submission_state matches (client-side).",
+        ),
+    }))
+}
+
+fn get_program() -> Value {
+    object(
+        json!({"handle": str_param("Program handle, e.g. 'security'.")}),
+        &["handle"],
+    )
+}
+
+fn get_program_structured_scopes() -> Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "handle".to_owned(),
+        str_param("Program handle, e.g. 'security'."),
+    );
+    properties.insert(
+        "scope_id_gt".to_owned(),
+        int_param(
+            "Only scopes with IDs greater than this. The API returns at most 10 000 scopes \
+             per query; to read beyond that cap, set this to the last scope ID seen and \
+             repeat.",
+            Some(0),
+            None,
+        ),
+    );
+    for filter in LIST_SCOPES_DATE_FILTERS {
+        properties.insert(
+            filter.argument.to_owned(),
+            date_time_param(filter.description),
+        );
+    }
+    properties.insert(
+        "page_number".to_owned(),
+        int_param("Page number to fetch.", Some(1), None),
+    );
+    properties.insert(
+        "page_size".to_owned(),
+        int_param("Number of scopes per page (1-100).", Some(1), Some(100)),
+    );
+    closed_object(Value::Object(properties))
 }
 
 fn get_report() -> Value {

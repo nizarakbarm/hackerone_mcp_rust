@@ -8,9 +8,9 @@ Everything here requires a **hacker** API token (user settings), not the custome
 
 | # | Endpoint | Params | Returns | Status in this repo |
 |---|---|---|---|---|
-| 1 | `GET /v1/hackers/programs` | `page[number]`, `page[size]` (1–100, default 25) — **no filters, no sort** | `program[]` | absent |
-| 2 | `GET /v1/hackers/programs/{handle}` | `handle` | `program` | absent |
-| 3 | `GET /v1/hackers/programs/{handle}/structured_scopes` | `handle`, `filter[id__gt]`, `filter[created_at__gt]`, `filter[updated_at__gt]`, pagination (10 000-item cap; page by `id__gt` beyond) | `structured_scope[]` | absent (customer-side twin ships as `list_scopes`) |
+| 1 | `GET /v1/hackers/programs` | `page[number]`, `page[size]` (1–100, default 25) — **no filters, no sort** | `program[]` | shipped as `search_programs` (capped client-side scan) |
+| 2 | `GET /v1/hackers/programs/{handle}` | `handle` | `program` | shipped as `get_program` |
+| 3 | `GET /v1/hackers/programs/{handle}/structured_scopes` | `handle`, `filter[id__gt]`, `filter[created_at__gt]`, `filter[updated_at__gt]`, pagination (10 000-item cap; page by `id__gt` beyond) | `structured_scope[]` | shipped as `get_program_structured_scopes` (customer-side twin ships as `list_scopes`) |
 | 4 | `GET /v1/hackers/programs/{handle}/scope_exclusions` | `handle` | `scope_exclusion[]` | absent |
 | 5 | `GET /v1/hackers/programs/{handle}/weaknesses` | `handle`, pagination | `weakness[]` | absent |
 | 6 | `GET /v1/hackers/reports/{id}` | `id` | `report` incl. `reporter`, `assignee`, `program`, `weakness`, `severity`, **`bounties`**, `swag`, `activities`, `attachments`, `structured_scope`, `summaries`. `vulnerability_information` only when the hacker owns it | absent (customer-side `get_report` ships) |

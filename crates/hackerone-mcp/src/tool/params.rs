@@ -27,6 +27,100 @@ pub struct Params {
 /// `filter[program][]` query value for `query_reports`.
 pub const PROGRAM_FILTER: &str = "filter[program][]";
 
+/// `page_size` used by `search_programs` when the caller does not set one:
+/// the directory's own default page length.
+pub const DEFAULT_PROGRAM_PAGE_SIZE: i64 = 25;
+
+/// `max_pages` used by `search_programs` when the caller does not set one.
+pub const DEFAULT_PROGRAM_MAX_PAGES: i64 = 5;
+
+/// Hard ceiling on `search_programs`' page budget.
+pub const MAX_PROGRAM_SCAN_PAGES: i64 = 20;
+
+/// A validated `search_programs` scan.
+///
+/// `/hackers/programs` has no server-side filters, so the filters live here
+/// and are applied to each decoded program. Bounds are enforced here so the
+/// scan loop can trust them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramSearch {
+    /// Page length requested from the API (1-100).
+    pub page_size: i64,
+    /// Maximum number of pages to request (1-20).
+    pub max_pages: i64,
+    /// Client-side `offers_bounties` filter.
+    pub offers_bounties: Option<bool>,
+    /// Client-side `state` filter.
+    pub state: Option<String>,
+    /// Client-side `submission_state` filter.
+    pub submission_state: Option<String>,
+}
+
+impl ProgramSearch {
+    /// Whether `program` passes every requested filter. A program missing the
+    /// attribute a filter names never matches.
+    #[must_use]
+    pub fn matches(&self, program: &Value) -> bool {
+        let attribute = |name: &str| {
+            program
+                .get("attributes")
+                .and_then(|values| values.get(name))
+        };
+        self.offers_bounties.is_none_or(|wanted| {
+            attribute("offers_bounties").and_then(Value::as_bool) == Some(wanted)
+        }) && self
+            .state
+            .as_deref()
+            .is_none_or(|wanted| attribute("state").and_then(Value::as_str) == Some(wanted))
+            && self.submission_state.as_deref().is_none_or(|wanted| {
+                attribute("submission_state").and_then(Value::as_str) == Some(wanted)
+            })
+    }
+}
+
+/// `GET /hackers/programs` scan parameters.
+///
+/// # Errors
+///
+/// [`Error::Validation`] for a `page_size` outside 1-100, a `max_pages`
+/// outside 1-20, or a wrongly typed filter.
+pub fn search_programs(args: &Map<String, Value>) -> Result<ProgramSearch, Error> {
+    let page_size = optional_int(args, "page_size")?.unwrap_or(DEFAULT_PROGRAM_PAGE_SIZE);
+    if !(1..=100).contains(&page_size) {
+        return Err(validation("page_size", "must be between 1 and 100"));
+    }
+    let max_pages = optional_int(args, "max_pages")?.unwrap_or(DEFAULT_PROGRAM_MAX_PAGES);
+    if !(1..=MAX_PROGRAM_SCAN_PAGES).contains(&max_pages) {
+        return Err(validation("max_pages", "must be between 1 and 20"));
+    }
+    Ok(ProgramSearch {
+        page_size,
+        max_pages,
+        offers_bounties: optional_bool(args, "offers_bounties")?,
+        state: optional_str(args, "state")?.map(str::to_owned),
+        submission_state: optional_str(args, "submission_state")?.map(str::to_owned),
+    })
+}
+
+/// Required `handle` argument, restricted to a single path segment so it can
+/// never address another endpoint.
+///
+/// # Errors
+///
+/// [`Error::Validation`] when `handle` is missing, not a string, empty, or
+/// contains anything but ASCII alphanumerics, `-` and `_`.
+pub fn program_handle(args: &Map<String, Value>) -> Result<&str, Error> {
+    let handle = required_str(args, "handle")?;
+    let valid = !handle.is_empty()
+        && handle
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'));
+    if !valid {
+        return Err(validation("handle", "must be a program handle"));
+    }
+    Ok(handle)
+}
+
 /// `GET /reports` parameters for the configured program.
 ///
 /// # Errors

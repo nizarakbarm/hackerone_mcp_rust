@@ -31,11 +31,15 @@ All paths are relative to `https://api.hackerone.com/v1`.
 | `escalate_report` | `POST /reports/{report_id}/escalate` | Escalate a report with an integration ID. |
 | `remove_escalation` | `DELETE /reports/{report_id}/escalate` | Remove an escalation. |
 | `update_custom_field_values` | `POST /reports/{report_id}/custom_field_values` | Set custom field values from a typed `custom_fields` map; returns a per-key result. |
+| `search_programs` | `GET /hackers/programs` | Scan up to 20 directory pages (default 5) and filter `offers_bounties`/`state`/`submission_state` client-side; reports truncation when the budget ended with pages left. |
+| `get_program` | `GET /hackers/programs/{handle}` | Fetch one program by handle (bounty signals, policy, submission state). |
+| `get_program_structured_scopes` | `GET /hackers/programs/{handle}/structured_scopes` | List a program's structured scopes; documents the 10 000-item API cap and `scope_id_gt` paging beyond it. |
 
 `query_reports` and `list_scopes` always scope results to the configured
 program handle; no tool accepts a program/team-handle argument. `list_scopes`
 resolves the handle to a program ID by following `links.next` on
-`/me/programs`.
+`/me/programs`. The three `hacker` tools take an explicit `handle` and spend
+the hacker token pair, not the customer pair.
 
 ## Prerequisites
 
@@ -206,7 +210,7 @@ Add `--raw` for the full JSON payload. Other flags: `--page-number`,
 | Transport | stdio only. | stdio plus bearer-gated streamable HTTP on `127.0.0.1:8765/mcp` by default. |
 | Tracing / redaction | Python logging. | `tracing` to stderr with an `RUST_LOG` filter; no credential, token, or `Authorization` value appears in a log statement. |
 | AGPL attribution | AGPL-3.0-or-later, Trail of Bits. | Same license; this port credits Trail of Bits in this README and ships the upstream license text. |
-| Hacker-side surface | none. | **Planned, not shipped:** seven read-only `/hackers/*` tools (program lookup, scope, exclusions, weaknesses, my reports, hacktivity) behind a second credential class — see [ADR-0008](docs/adr/0008-hacker-side-surface.md) and [docs/hacker-api-surface.md](docs/hacker-api-surface.md), which also records what was rejected and why. |
+| Hacker-side surface | none. | **Partly shipped:** the three program reads (`search_programs`, `get_program`, `get_program_structured_scopes`) behind a second credential class; the remaining four read-only `/hackers/*` tools are still planned — see [ADR-0008](docs/adr/0008-hacker-side-surface.md) and [docs/hacker-api-surface.md](docs/hacker-api-surface.md), which also record what was rejected and why. |
 
 ## Development
 
