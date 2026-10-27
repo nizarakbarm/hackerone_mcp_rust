@@ -820,3 +820,94 @@ async fn a_query_string_is_passed_through_unvalidated() {
         ])
     );
 }
+
+#[tokio::test]
+async fn search_programs_resumes_from_start_page() {
+    let server = MockServer::start().await;
+    mount_directory_page(
+        &server,
+        3,
+        2,
+        directory_page(vec![program(9, true)], Some(next_link(&server, 4))),
+    )
+    .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_programs",
+        &args(json!({"page_size": 2, "start_page": 3, "max_pages": 1})),
+    )
+    .await
+    .expect("search");
+
+    assert_eq!(value["pages_scanned"], 1, "{value}");
+    assert_eq!(value["truncated"], true, "{value}");
+    assert_eq!(value["next_page"], 4, "{value}");
+    let ids: Vec<&str> = value["matches"]
+        .as_array()
+        .expect("matches")
+        .iter()
+        .map(|program| program["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, vec!["9"], "{value}");
+}
+
+#[tokio::test]
+async fn search_programs_reports_a_program_once_when_pages_overlap() {
+    let server = MockServer::start().await;
+    mount_directory_page(
+        &server,
+        1,
+        2,
+        directory_page(
+            vec![program(1, true), program(2, true)],
+            Some(next_link(&server, 2)),
+        ),
+    )
+    .await;
+    // The directory shifted: program 1 shows up again on page 2.
+    mount_directory_page(
+        &server,
+        2,
+        2,
+        directory_page(vec![program(1, true), program(3, true)], None),
+    )
+    .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_programs",
+        &args(json!({"page_size": 2})),
+    )
+    .await
+    .expect("search");
+
+    let ids: Vec<&str> = value["matches"]
+        .as_array()
+        .expect("matches")
+        .iter()
+        .map(|program| program["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, vec!["1", "2", "3"], "{value}");
+}
+
+#[tokio::test]
+async fn search_programs_rejects_a_start_page_below_one() {
+    let server = MockServer::start().await;
+    let error = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "search_programs",
+        &args(json!({"start_page": 0})),
+    )
+    .await
+    .expect_err("a page below 1 is invalid");
+
+    let Error::Validation { field, .. } = error else {
+        panic!("expected Validation, got {error:?}");
+    };
+    assert_eq!(field, "start_page");
+    assert!(received(&server).await.is_empty(), "no request may be sent");
+}

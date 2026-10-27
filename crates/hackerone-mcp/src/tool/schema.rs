@@ -126,6 +126,12 @@ fn search_programs() -> Value {
             Some(1),
             Some(MAX_PROGRAM_SCAN_PAGES),
         ),
+        "start_page": int_param(
+            "Directory page to start scanning from (1-based). Resume a truncated scan \
+             with the next_page a previous call returned.",
+            Some(1),
+            None,
+        ),
         "offers_bounties": bool_param(
             "Only keep programs whose offers_bounties matches (client-side).",
         ),

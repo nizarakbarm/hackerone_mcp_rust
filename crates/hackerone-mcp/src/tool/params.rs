@@ -48,6 +48,9 @@ pub struct ProgramSearch {
     pub page_size: i64,
     /// Maximum number of pages to request (1-20).
     pub max_pages: i64,
+    /// Directory page to begin scanning from (1-based): lets a caller resume a
+    /// truncated scan at the `next_page` the previous call reported.
+    pub start_page: i64,
     /// Client-side `offers_bounties` filter.
     pub offers_bounties: Option<bool>,
     /// Client-side `state` filter.
@@ -93,9 +96,14 @@ pub fn search_programs(args: &Map<String, Value>) -> Result<ProgramSearch, Error
     if !(1..=MAX_PROGRAM_SCAN_PAGES).contains(&max_pages) {
         return Err(validation("max_pages", "must be between 1 and 20"));
     }
+    let start_page = optional_int(args, "start_page")?.unwrap_or(1);
+    if start_page < 1 {
+        return Err(validation("start_page", "must be at least 1"));
+    }
     Ok(ProgramSearch {
         page_size,
         max_pages,
+        start_page,
         offers_bounties: optional_bool(args, "offers_bounties")?,
         state: optional_str(args, "state")?.map(str::to_owned),
         submission_state: optional_str(args, "submission_state")?.map(str::to_owned),

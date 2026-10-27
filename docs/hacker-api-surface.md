@@ -28,6 +28,10 @@ Everything here requires a **hacker** API token (user settings), not the custome
 - **No server-side search on the program directory.** Bounty filtering (`offers_bounties`) is
   client-side over pages. Any "find bounty programs" tool must cap its scan and say so in its
   description, or an agent will believe it searched the whole directory.
+- **The directory is ~595 programs** (5 pages of 100 + 95, measured 2026-10-27), so a 5×25 default
+  budget sees ~21% of it. `search_programs` therefore takes `start_page` and returns `next_page`,
+  and resumes from there; it also dedupes by program id because the directory shifts between page
+  requests.
 - **Program object carries the bounty signals**: `offers_bounties`, `bounty_earned_for_user`,
   `allows_bounty_splitting`, `currency`, `open_scope`, `submission_state`, `state`, `policy`.
 - **Structured scopes have the 10 000-item cap**, docs advise `filter[id__gt]` paging beyond it.
