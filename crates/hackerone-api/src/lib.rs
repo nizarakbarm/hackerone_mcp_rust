@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use reqwest::header::ACCEPT;
-use reqwest::{Client as HttpClient, Method};
+use reqwest::{Client as HttpClient, Method, Response};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -19,6 +19,18 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Per-request budget, not per tool call: one tool may issue many requests (ADR-0009).
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Cap on a 2xx response body, counted while streaming (spec #35).
+///
+/// `Content-Length` is not the control: it is absent for chunked or compressed
+/// bodies and can lie, so the cap is enforced on bytes actually read.
+pub const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+/// Cap on a non-2xx response body, counted while streaming (spec #35).
+///
+/// Error text is interpolated into an MCP tool result, i.e. into an LLM's context,
+/// so it is truncated far lower than the success cap.
+pub const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
 /// Which token pair a tool spends (ADR-0008).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,6 +72,9 @@ impl CredentialClass {
 ///
 /// Construction is dumb and `Deserialize` is transparent, so a TOML section
 /// deserializes straight into `Option<Secret<String>>`.
+///
+/// The derived `PartialEq` is not constant-time: it exists so `Config` stays
+/// comparable, and it must never be used to check a presented credential.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Secret<T>(T);
 
@@ -118,6 +133,12 @@ pub enum Error {
         /// Raw response body; may be HTML from an intermediary.
         body: String,
     },
+    /// A 2xx response body was larger than the read cap.
+    #[error("response body exceeds {limit} bytes")]
+    ResponseTooLarge {
+        /// Cap that was exceeded, in bytes.
+        limit: usize,
+    },
     /// The request never produced a response (DNS, TLS, connect, read-timeout).
     #[error("transport error: {0}")]
     Transport(#[from] reqwest::Error),
@@ -169,6 +190,7 @@ pub struct Client {
     base_url: String,
     username: Secret<String>,
     token: Secret<String>,
+    body_limit: usize,
 }
 
 impl Client {
@@ -190,6 +212,7 @@ impl Client {
             base_url: DEFAULT_BASE_URL.to_owned(),
             username: username.into(),
             token: token.into(),
+            body_limit: MAX_BODY_BYTES,
         })
     }
 
@@ -207,6 +230,16 @@ impl Client {
             .timeout(timeout)
             .build()?;
         Ok(self)
+    }
+
+    /// Test seam: override the 2xx body cap.
+    ///
+    /// Production uses [`MAX_BODY_BYTES`]; only tests call this.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_body_limit(mut self, limit: usize) -> Self {
+        self.body_limit = limit;
+        self
     }
 
     /// Point the client at another API root (tests, proxies, future versions).
@@ -288,10 +321,12 @@ impl Client {
 
     /// Perform one request and decode the response.
     ///
-    /// Response mapping: non-2xx → [`Error::Api`]; empty 2xx body → [`Value::Null`]
+    /// Response mapping: non-2xx → [`Error::Api`] with the body truncated to
+    /// [`MAX_ERROR_BODY_BYTES`]; empty 2xx body → [`Value::Null`]
     /// (there is no JSON document to hand back, and `Null` keeps "no body" distinct
-    /// from a `{}` document); unparsable 2xx body → [`Error::Decode`]; no response at
-    /// all → [`Error::Transport`].
+    /// from a `{}` document); unparsable 2xx body → [`Error::Decode`]; 2xx body past
+    /// the cap → [`Error::ResponseTooLarge`]; no response at all →
+    /// [`Error::Transport`].
     ///
     /// # Errors
     ///
@@ -322,18 +357,57 @@ impl Client {
 
         let response = request.send().await?;
         let status = response.status();
-        let text = response.text().await?;
 
         if !status.is_success() {
+            let bytes = read_capped(response, MAX_ERROR_BODY_BYTES).await?;
+            let body = truncate_utf8(&bytes, MAX_ERROR_BODY_BYTES);
             return Err(Error::Api {
                 status: status.as_u16(),
-                detail: text.trim().to_owned(),
-                body: text,
+                detail: body.trim().to_owned(),
+                body,
             });
         }
-        if text.trim().is_empty() {
+
+        let bytes = read_capped(response, self.body_limit).await?;
+        if bytes.len() > self.body_limit {
+            return Err(Error::ResponseTooLarge {
+                limit: self.body_limit,
+            });
+        }
+        if bytes.iter().all(u8::is_ascii_whitespace) {
             return Ok(Value::Null);
         }
-        Ok(serde_json::from_str(&text)?)
+        Ok(serde_json::from_slice(&bytes)?)
     }
+}
+
+/// Stream at most `limit + 1` body bytes, then drop the response (the rest of the
+/// body is never read): one byte past the cap proves the body is too large without
+/// buffering it. `Content-Length` is ignored — chunked and compressed bodies do not
+/// carry a usable one.
+///
+/// The size check runs *before* each append: a single chunk may be several MiB, so
+/// checking afterwards would let the buffer overshoot the cap.
+async fn read_capped(mut response: Response, limit: usize) -> Result<Vec<u8>, Error> {
+    let cap = limit.saturating_add(1);
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if bytes.len() + chunk.len() > cap {
+            bytes.extend_from_slice(&chunk[..cap - bytes.len()]);
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+/// Cut `bytes` to at most `limit` bytes on a character boundary, so the result is
+/// always valid UTF-8 (a multi-byte character straddling the cut is dropped).
+fn truncate_utf8(bytes: &[u8], limit: usize) -> String {
+    let head = &bytes[..bytes.len().min(limit)];
+    let cut = match std::str::from_utf8(head) {
+        Ok(_) => head.len(),
+        Err(error) => error.valid_up_to(),
+    };
+    String::from_utf8_lossy(&head[..cut]).into_owned()
 }

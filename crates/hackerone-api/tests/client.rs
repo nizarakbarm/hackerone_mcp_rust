@@ -249,6 +249,120 @@ async fn absolute_path_is_sent() {
     assert_eq!(body, json!({"data": {"id": "1"}}));
 }
 
+#[tokio::test]
+async fn body_exactly_at_the_limit_parses() {
+    let server = MockServer::start().await;
+    let payload = br#"{"data":[],"pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
+    Mock::given(method("GET"))
+        .and(path("/reports"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.to_vec()))
+        .mount(&server)
+        .await;
+
+    let body = client(&server)
+        .with_body_limit(payload.len())
+        .get("/reports", &[], None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        body,
+        json!({ "data": [], "pad": "x".repeat(60) }),
+        "body exactly at the cap must parse"
+    );
+}
+
+#[tokio::test]
+async fn body_one_byte_over_the_limit_is_response_too_large() {
+    let server = MockServer::start().await;
+    let pad = "x".repeat(100);
+    let payload = json!({ "data": [], "pad": pad });
+    let size = serde_json::to_vec(&payload).unwrap().len();
+    Mock::given(method("GET"))
+        .and(path("/reports"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&payload))
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .with_body_limit(size - 1)
+        .get("/reports", &[], None)
+        .await
+        .unwrap_err();
+
+    match error {
+        Error::ResponseTooLarge { limit } => {
+            assert_eq!(limit, size - 1);
+            assert_eq!(
+                error.to_string(),
+                format!("response body exceeds {} bytes", size - 1),
+                "message names the limit"
+            );
+        }
+        other => panic!("expected ResponseTooLarge, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn error_body_past_the_error_cap_is_truncated_not_failed() {
+    let server = MockServer::start().await;
+    let page = format!("<html>{}</html>", "boom ".repeat(2000));
+    assert!(page.len() > 4 * 1024);
+    Mock::given(method("GET"))
+        .and(path("/reports"))
+        .respond_with(ResponseTemplate::new(500).set_body_string(page.clone()))
+        .mount(&server)
+        .await;
+
+    let error = client(&server).get("/reports", &[], None).await.unwrap_err();
+    let printed = error.to_string();
+    assert!(
+        printed.len() <= 4096 + 64,
+        "Display must stay bounded, got {} bytes",
+        printed.len()
+    );
+    assert!(printed.starts_with("hackerone api error 500: <html>boom"));
+
+    match error {
+        Error::Api {
+            status,
+            detail,
+            body,
+        } => {
+            assert_eq!(status, 500);
+            assert!(body.len() <= 4096, "body len {}", body.len());
+            assert!(body.starts_with("<html>boom"), "body: {body}");
+            assert_eq!(body, &page[..body.len()]);
+            assert!(detail.len() <= 4096);
+            assert!(detail.starts_with("<html>boom"), "detail: {detail}");
+        }
+        other => panic!("expected Api, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn error_body_cut_inside_a_multibyte_character_stays_valid_utf8() {
+    let server = MockServer::start().await;
+    // 4095 ASCII bytes put the first byte of "é" exactly at the 4 KiB cut.
+    let page = format!("{}\u{e9}{}", "a".repeat(4095), "z".repeat(100));
+    Mock::given(method("GET"))
+        .and(path("/reports"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(page))
+        .mount(&server)
+        .await;
+
+    let error = client(&server).get("/reports", &[], None).await.unwrap_err();
+
+    match error {
+        Error::Api { status, body, .. } => {
+            assert_eq!(status, 503);
+            assert_eq!(body.len(), 4095, "half a character must be dropped");
+            assert!(body.bytes().all(|b| b == b'a'), "body tail: {body:?}");
+        }
+        other => panic!("expected Api, got {other:?}"),
+    }
+}
+
 /// Token-shaped fixture: distinctive, so a leak in a redaction test is obvious.
 const SECRET_TOKEN: &str = "tok_live_9f3";
 
