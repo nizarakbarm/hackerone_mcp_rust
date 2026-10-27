@@ -45,7 +45,15 @@ impl Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
+    if let Err(error) = run().await {
+        // Startup failures are read by humans: print the message, not the debug struct.
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     hackerone_mcp::init_tracing();
     let config = hackerone_mcp::config::load(&cli.flags(), &std::env::current_dir()?, |key| {
