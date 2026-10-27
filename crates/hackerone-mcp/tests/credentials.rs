@@ -128,10 +128,10 @@ async fn customer_tools_without_customer_credentials_fail_before_any_request() {
     assert!(clients.for_class(CredentialClass::Customer).is_none());
     assert!(clients.for_class(CredentialClass::Hacker).is_some());
 
-    for name in tool::WIRED
-        .iter()
-        .filter(|(_, _, class)| *class == CredentialClass::Customer)
-        .map(|(tool, _, _)| tool.name())
+    for name in tool::ToolName::ALL
+        .into_iter()
+        .filter(|tool| tool.class() == CredentialClass::Customer)
+        .map(tool::ToolName::name)
     {
         let error = dispatch(&clients, &ProgramScope::new(None), name, &args(json!({})))
             .await

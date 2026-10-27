@@ -129,20 +129,33 @@ impl ToolName {
         schema::schema(self)
     }
 
-    /// Credential class this tool spends, taken from the registry so there is
-    /// exactly one place to declare it (ADR-0008).
+    /// Credential class this tool spends (ADR-0008).
     ///
-    /// # Panics
-    ///
-    /// If the tool is missing from [`WIRED`]; the registry test keeps every
-    /// variant wired exactly once.
+    /// Exhaustive, so a new variant cannot compile without stating its class.
     #[must_use]
-    pub fn class(self) -> CredentialClass {
-        WIRED
-            .iter()
-            .find(|(tool, _, _)| *tool == self)
-            .map(|(_, _, class)| *class)
-            .expect("every ToolName is wired exactly once")
+    pub const fn class(self) -> CredentialClass {
+        match self {
+            Self::GetReport
+            | Self::GetReportCustomFieldValues
+            | Self::CreateReport
+            | Self::QueryReports
+            | Self::ListScopes
+            | Self::ChangeState
+            | Self::CreateComment
+            | Self::UpdateTitle
+            | Self::UpdateReference
+            | Self::UpdateCves
+            | Self::EscalateReport
+            | Self::RemoveEscalation
+            | Self::UpdateCustomFieldValues => CredentialClass::Customer,
+            Self::SearchPrograms
+            | Self::GetProgram
+            | Self::GetProgramStructuredScopes
+            | Self::GetProgramScopeExclusions
+            | Self::GetProgramWeaknesses
+            | Self::ListMyReports
+            | Self::SearchHacktivity => CredentialClass::Hacker,
+        }
     }
 }
 
@@ -150,75 +163,59 @@ impl ToolName {
 /// descriptions and credential class: the only tools `tools/list` may
 /// advertise, and the authority `dispatch` uses to pick a client (ADR-0008).
 /// Every name `ToolName` knows is wired.
-pub const WIRED: [(ToolName, &str, CredentialClass); 20] = [
+pub const WIRED: [(ToolName, &str); 20] = [
     (
         ToolName::GetReport,
         "Fetch a single HackerOne report by ID.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::GetReportCustomFieldValues,
         "Fetch normalized custom field values currently set on a single report.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::CreateReport,
         "Import a known vulnerability report into the configured program.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::QueryReports,
         "Query paginated HackerOne reports for the configured program using common \
          filters, sort, and pagination.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::ListScopes,
         "List structured scopes for the configured program using common filters and \
          pagination.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::ChangeState,
         "Change the state of a report (e.g. triaged, resolved, not-applicable, \
          duplicate, informative, spam).",
-        CredentialClass::Customer,
     ),
     (
         ToolName::CreateComment,
         "Add a comment to a report. Can be internal (team-only) or external (visible \
          to reporter).",
-        CredentialClass::Customer,
     ),
-    (
-        ToolName::UpdateTitle,
-        "Update the title of a report.",
-        CredentialClass::Customer,
-    ),
+    (ToolName::UpdateTitle, "Update the title of a report."),
     (
         ToolName::UpdateReference,
         "Update the external reference (e.g. Jira ticket URL) on a report.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::UpdateCves,
         "Update CVE identifiers associated with a report.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::EscalateReport,
         "Escalate a report for higher-priority attention.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::RemoveEscalation,
         "Remove an escalation from a report.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::UpdateCustomFieldValues,
         "Set custom field values on a report.",
-        CredentialClass::Customer,
     ),
     (
         ToolName::SearchPrograms,
@@ -226,45 +223,38 @@ pub const WIRED: [(ToolName, &str, CredentialClass); 20] = [
          offers_bounties, state and submission_state are matched client-side over a capped scan of \
          at most max_pages pages (default 5, cap 20). A result with truncated true means the scan \
          budget ran out while more directory pages existed; it does not mean more matches exist.",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::GetProgram,
         "Fetch one HackerOne program by handle, including offers_bounties, policy and \
          submission_state.",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::GetProgramStructuredScopes,
         "List a program's structured scopes with id and timestamp filters. The API returns at most \
          10 000 scopes per query; to read beyond that cap, pass scope_id_gt set to the last scope ID \
          seen and repeat.",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::GetProgramScopeExclusions,
         "List a program's scope exclusions: the report categories it never rewards, in \
          addition to core ineligible findings.",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::GetProgramWeaknesses,
         "List the weaknesses (CWEs) a program accepts, with page_number and page_size \
          (1-100, default 25).",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::ListMyReports,
         "List the authenticated hacker's own reports, with page_number and page_size \
          (1-100, default 25).",
-        CredentialClass::Hacker,
     ),
     (
         ToolName::SearchHacktivity,
         "Search public HackerOne hacktivity with an Apache Lucene queryString (for example \
          'severity_rating:critical AND disclosed:true'), sorted by sort (default \
          -latest_disclosable_activity_at) and paginated.",
-        CredentialClass::Hacker,
     ),
 ];
 

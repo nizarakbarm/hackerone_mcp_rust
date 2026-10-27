@@ -533,12 +533,12 @@ fn every_tool_variant_is_wired_exactly_once_in_advertised_order() {
     for variant in ToolName::ALL {
         let count = tool::WIRED
             .iter()
-            .filter(|(wired, _, _)| *wired == variant)
+            .filter(|(wired, _)| *wired == variant)
             .count();
         assert_eq!(count, 1, "{} is not wired exactly once", variant.name());
     }
 
-    let wired: Vec<ToolName> = tool::WIRED.iter().map(|(tool, _, _)| *tool).collect();
+    let wired: Vec<ToolName> = tool::WIRED.iter().map(|(tool, _)| *tool).collect();
     assert_eq!(wired, ToolName::ALL.to_vec());
 }
 

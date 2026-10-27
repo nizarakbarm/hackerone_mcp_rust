@@ -135,7 +135,7 @@ impl ServerHandler for HackerOneServer {
     ) -> Result<ListToolsResult, ErrorData> {
         let tools = tool::WIRED
             .iter()
-            .map(|(tool, description, _)| {
+            .map(|(tool, description)| {
                 Tool::new(tool.name(), *description, schema_object(tool.schema()))
             })
             .collect();

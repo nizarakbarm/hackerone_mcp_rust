@@ -513,7 +513,7 @@ async fn router_rejects_unknown_tool_names_without_a_request() {
 
 #[test]
 fn wired_tools_are_all_advertised_in_registry_order() {
-    let names: Vec<_> = tool::WIRED.iter().map(|(tool, _, _)| tool.name()).collect();
+    let names: Vec<_> = tool::WIRED.iter().map(|(tool, _)| tool.name()).collect();
     assert_eq!(
         names,
         ToolName::ALL
