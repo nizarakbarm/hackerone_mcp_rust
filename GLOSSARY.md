@@ -31,3 +31,6 @@ Vocabulary for this repo. Use these terms in issues, specs, ADRs, test names, an
 - **server crate** — `crates/hackerone-mcp`: tool schemas, dispatch, transports, config. Two binaries: `hackerone-mcp`, `hackerone-mcp-query-reports-harness`.
 - **Harness** — live end-to-end checker that spawns the server over stdio, asserts the `query_reports` schema exposes no caller-controlled program field, then runs real filters against a real program.
 - **Text passthrough** — success results carry the API JSON as text only; no `structuredContent`.
+- **Secret** — a credential value the process holds. Never rendered in formatting: debug and log output show a fixed marker in its place, revealing neither the value nor its length, and no accidental print path exists.
+- **Body cap** — the maximum response size one call may read. Enforced while reading, so a chunked or mislabelled response cannot sidestep it.
+- **Response too large** — the failure of a call whose success body crossed the body cap. An error body is truncated to its useful head instead of failing, because the status already says more.
