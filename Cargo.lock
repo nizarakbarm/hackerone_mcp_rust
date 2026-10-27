@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "hackerone-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "reqwest",
  "serde_json",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "hackerone-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "clap",
