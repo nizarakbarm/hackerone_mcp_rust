@@ -38,12 +38,14 @@ All paths are relative to `https://api.hackerone.com/v1`.
 | `get_program_weaknesses` | `GET /hackers/programs/{handle}/weaknesses` | List a program's accepted weaknesses (CWEs), paginated. |
 | `list_my_reports` | `GET /hackers/me/reports` | List the authenticated hacker's own reports, paginated. |
 | `search_hacktivity` | `GET /hackers/hacktivity` | Search public hacktivity with a verbatim Apache Lucene `queryString`; `sort` defaults to `-latest_disclosable_activity_at`. |
+| `get_hacker_report` | `GET /hackers/reports/{report_id}` | Fetch one of your own reports by ID, including vulnerability information, severity, bounties, activities and attachments. |
 
 `query_reports` and `list_scopes` always scope results to the configured
 program handle; no tool accepts a program/team-handle argument. `list_scopes`
 resolves the handle to a program ID by following `links.next` on
 `/me/programs`. The `hacker` tools spend the hacker token pair, not the customer pair;
-the program-scoped ones take an explicit `handle`.
+the program-scoped ones take an explicit `handle`, while `list_my_reports` and
+`get_hacker_report` take none.
 
 ## Prerequisites
 

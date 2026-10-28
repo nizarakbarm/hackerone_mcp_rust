@@ -5,6 +5,7 @@ Vocabulary for this repo. Use these terms in issues, specs, ADRs, test names, an
 ## HackerOne domain
 
 - **Report** — a vulnerability submission to a program. Identified by an integer `report_id`. Has a state, severity, title, vulnerability information, impact, and relationships (custom field values, activities, attachments).
+- **Hacker report** — a report read through the hacker credential (`/hackers/reports/{id}`): the reporter's own view, with vulnerability information, bounties and swag. The same report read through the customer credential (`get_report`) is the program's view.
 - **Program** — the bug bounty program (a.k.a. *team*) that receives reports. Identified by a **program handle** (the slug in `hackerone.com/<handle>`) and an opaque numeric/string **program id** used by some API paths.
 - **Program handle** — `HACKERONE_PROGRAM_HANDLE`. The security boundary of this process: every scoped tool call targets exactly this program. Callers can never override it through tool arguments.
 - **Structured scope** — an entry in a program's scope table (asset, asset type, instruction, max severity, bounty eligibility). Listed via `/programs/{id}/structured_scopes`.
@@ -21,7 +22,7 @@ Vocabulary for this repo. Use these terms in issues, specs, ADRs, test names, an
 
 ## This system
 
-- **MCP tool** — one JSON-Schema-described callable function advertising name, description, `inputSchema`. thirteen exist; their names, arguments, and response payloads are **parity-frozen** against the upstream Python server.
+- **MCP tool** — one JSON-Schema-described callable function advertising name, description, `inputSchema`. twenty-one exist: the upstream thirteen, whose names, arguments, and response payloads are **parity-frozen**, plus eight hacker-side reads that upstream does not have.
 - **Parity** — same tool name, same argument names/enums, same response body shape as `trailofbits/hackerone-mcp`. Response bodies are the raw HackerOne JSON, pretty-printed into `content[0].text`.
 - **Wart fix** — a deliberate, listed departure from parity (see ADR-0001). Anything not on that list stays parity.
 - **Credential class** — the token pair a tool spends, declared per registry entry: `Customer` (`HACKERONE_API_*`, program side) or `Hacker` (`HACKERONE_HACKER_API_*`, `/v1/hackers/*`). A missing pair fails that tool's call with `MissingCredential`, never startup; a tool can only ever reach the client of its own class (ADR-0008).

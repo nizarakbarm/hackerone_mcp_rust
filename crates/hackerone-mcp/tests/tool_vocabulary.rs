@@ -64,6 +64,7 @@ fn tool_names_are_all_advertised_in_order() {
         "get_program_weaknesses",
         "list_my_reports",
         "search_hacktivity",
+        "get_hacker_report",
     ];
 
     assert_eq!(ToolName::ALL.len(), expected.len());

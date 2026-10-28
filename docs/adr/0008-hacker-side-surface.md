@@ -14,7 +14,7 @@ It also exposes things that must not be handed to an unattended agent.
 
 ## Decision
 
-### In scope — seven read-only tools
+### In scope — seven read-only tools (eight since the 2026-10-28 amendment)
 
 | Tool | Endpoint | Note |
 |---|---|---|
@@ -25,11 +25,12 @@ It also exposes things that must not be handed to an unattended agent.
 | `get_program_weaknesses` | `GET /hackers/programs/{handle}/weaknesses` | |
 | `list_my_reports` | `GET /hackers/me/reports` | |
 | `search_hacktivity` | `GET /hackers/hacktivity` | `queryString` passed through verbatim (Lucene subset), `sort`, pagination |
+| `get_hacker_report` (2026-10-28) | `GET /hackers/reports/{id}` | reporter's own report: `vulnerability_information`, `bounties`, `swag`, `activities` |
 
 ### Out of scope, deliberately
 
-- `GET /hackers/reports/{id}` — redundant with the customer-side `get_report` for triage; adds a
-  second, differently-shaped report read that would confuse tool selection.
+- ~~`GET /hackers/reports/{id}`~~ — **revoked 2026-10-28**; now in scope as `get_hacker_report`
+  (see the amendment below).
 - `GET /hackers/payments/{balance,earnings,payouts}` — human dashboards. An agent never acts on a
   balance read; the credential cost (a second token) already covers a wider surface.
 - `POST /hackers/reports` — unattended report submission is the highest-abuse action the binary
@@ -70,3 +71,14 @@ it. The api crate already carries policy-shaped variants (`Config`, `Validation`
 `MissingProgramHandle`) for the same reason: one enum, one source of truth, and a `?` that never
 needs translation at the boundary. If the api crate ever ships as a standalone client, the class
 enum is one more piece of its config surface — not a dependency inversion.
+
+## Amendment (2026-10-28): `get_hacker_report` moves in scope
+
+`GET /hackers/reports/{id}` is now shipped as `get_hacker_report` (hacker class, argument
+`report_id`). The original rejection assumed triage only needs the program's view; the reporter's
+view carries `vulnerability_information`, `bounties`, `swag` and `activities` that the customer-side
+`get_report` does not return, and the caller names the tool, so the "confusing tool selection"
+cost did not materialise.
+
+Tool count goes 20 → 21; all 21 stay advertised regardless of configured credentials, and a call
+without the hacker pair still fails with `MissingCredential { class: Hacker }`.

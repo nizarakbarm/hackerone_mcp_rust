@@ -11,11 +11,11 @@ Everything here requires a **hacker** API token (user settings), not the custome
 | 1 | `GET /v1/hackers/programs` | `page[number]`, `page[size]` (1–100, default 25) — **no filters, no sort** | `program[]` | shipped as `search_programs` (capped client-side scan) |
 | 2 | `GET /v1/hackers/programs/{handle}` | `handle` | `program` | shipped as `get_program` |
 | 3 | `GET /v1/hackers/programs/{handle}/structured_scopes` | `handle`, `filter[id__gt]`, `filter[created_at__gt]`, `filter[updated_at__gt]`, pagination (10 000-item cap; page by `id__gt` beyond) | `structured_scope[]` | shipped as `get_program_structured_scopes` (customer-side twin ships as `list_scopes`) |
-| 4 | `GET /v1/hackers/programs/{handle}/scope_exclusions` | `handle` | `scope_exclusion[]` | absent |
-| 5 | `GET /v1/hackers/programs/{handle}/weaknesses` | `handle`, pagination | `weakness[]` | absent |
-| 6 | `GET /v1/hackers/reports/{id}` | `id` | `report` incl. `reporter`, `assignee`, `program`, `weakness`, `severity`, **`bounties`**, `swag`, `activities`, `attachments`, `structured_scope`, `summaries`. `vulnerability_information` only when the hacker owns it | absent (customer-side `get_report` ships) |
-| 7 | `GET /v1/hackers/me/reports` | pagination | `report[]` | absent |
-| 8 | `GET /v1/hackers/hacktivity` | `queryString` (Lucene: `severity_rating`, `asset_type`, `substate`, `cwe`, `cve_ids`, `reporter`, `team`, `total_awarded_amount`, `disclosed_at`, `has_collaboration`, `disclosed`), `sort` (default `-latest_disclosable_activity_at`), pagination | `hacktivity_item[]` | absent |
+| 4 | `GET /v1/hackers/programs/{handle}/scope_exclusions` | `handle` | `scope_exclusion[]` | shipped as `get_program_scope_exclusions` |
+| 5 | `GET /v1/hackers/programs/{handle}/weaknesses` | `handle`, pagination | `weakness[]` | shipped as `get_program_weaknesses` |
+| 6 | `GET /v1/hackers/reports/{id}` | `id` | `report` incl. `reporter`, `assignee`, `program`, `weakness`, `severity`, **`bounties`**, `swag`, `activities`, `attachments`, `structured_scope`, `summaries`. `vulnerability_information` only when the hacker owns it | shipped as `get_hacker_report` (customer-side twin ships as `get_report`) |
+| 7 | `GET /v1/hackers/me/reports` | pagination | `report[]` | shipped as `list_my_reports` |
+| 8 | `GET /v1/hackers/hacktivity` | `queryString` (Lucene: `severity_rating`, `asset_type`, `substate`, `cwe`, `cve_ids`, `reporter`, `team`, `total_awarded_amount`, `disclosed_at`, `has_collaboration`, `disclosed`), `sort` (default `-latest_disclosable_activity_at`), pagination | `hacktivity_item[]` | shipped as `search_hacktivity` |
 | 9 | `GET /v1/hackers/payments/balance` | — | balance object | absent |
 | 10 | `GET /v1/hackers/payments/earnings` | pagination | `earning[]` | absent |
 | 11 | `GET /v1/hackers/payments/payouts` | pagination | `payout[]` | absent |

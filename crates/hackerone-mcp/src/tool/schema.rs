@@ -37,6 +37,7 @@ pub fn schema(tool: ToolName) -> Value {
         ToolName::GetProgramWeaknesses => get_program_weaknesses(),
         ToolName::ListMyReports => list_my_reports(),
         ToolName::SearchHacktivity => search_hacktivity(),
+        ToolName::GetHackerReport => get_hacker_report(),
     }
 }
 
@@ -221,6 +222,13 @@ fn search_hacktivity() -> Value {
 }
 
 fn get_report() -> Value {
+    object(
+        json!({"report_id": int_param("The report ID.", None, None)}),
+        &["report_id"],
+    )
+}
+
+fn get_hacker_report() -> Value {
     object(
         json!({"report_id": int_param("The report ID.", None, None)}),
         &["report_id"],

@@ -128,6 +128,7 @@ async fn every_hacker_tool_sends_only_the_hacker_token() {
         "/hackers/programs/acme/weaknesses",
         "/hackers/me/reports",
         "/hackers/hacktivity",
+        "/hackers/reports/9001",
     ] {
         Mock::given(method("GET"))
             .and(path(endpoint))
@@ -146,6 +147,7 @@ async fn every_hacker_tool_sends_only_the_hacker_token() {
         ("get_program_weaknesses", json!({"handle": "acme"})),
         ("list_my_reports", json!({})),
         ("search_hacktivity", json!({})),
+        ("get_hacker_report", json!({"report_id": 9001})),
     ] {
         dispatch(&clients, &ProgramScope::new(None), name, &args(arguments))
             .await
@@ -153,7 +155,7 @@ async fn every_hacker_tool_sends_only_the_hacker_token() {
     }
 
     let seen = authorizations(&server).await;
-    assert_eq!(seen.len(), 7);
+    assert_eq!(seen.len(), 8);
     for auth in seen {
         assert_eq!(auth.as_deref(), Some(HACKER_AUTH), "hacker token expected");
         assert_ne!(
@@ -513,6 +515,7 @@ fn hacker_tools_are_in_the_registry_as_hacker_class() {
         "get_program_weaknesses",
         "list_my_reports",
         "search_hacktivity",
+        "get_hacker_report",
     ] {
         let tool = tool::ToolName::from_wire(name).expect("tool exists");
         assert_eq!(tool.class(), hackerone_api::CredentialClass::Hacker);
@@ -679,6 +682,49 @@ async fn list_my_reports_sends_no_parameters_when_pagination_is_omitted() {
     .expect("my reports");
 
     assert!(query_pairs(&received(&server).await[0]).is_empty());
+}
+
+#[tokio::test]
+async fn get_hacker_report_uses_the_exact_path_and_passes_the_body_through() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "data": {
+            "type": "report",
+            "id": "9001",
+            "attributes": {
+                "title": "SQL injection",
+                "severity": {"rating": "high"},
+                "vulnerability_information": "payload"
+            }
+        }
+    });
+    Mock::given(method("GET"))
+        .and(path("/hackers/reports/9001"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = dispatch(
+        &clients(&server),
+        &ProgramScope::new(None),
+        "get_hacker_report",
+        &args(json!({"report_id": 9001})),
+    )
+    .await
+    .expect("hacker report");
+
+    assert_eq!(value, body);
+    let requests = received(&server).await;
+    assert_eq!(requests.len(), 1);
+    assert!(query_pairs(&requests[0]).is_empty());
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("authorization")
+            .map(|value| value.to_str().expect("ascii header")),
+        Some(HACKER_AUTH)
+    );
 }
 
 /// Lucene that exercises spaces, `:`, `>=`, `AND`/`OR`, quotes and parentheses.

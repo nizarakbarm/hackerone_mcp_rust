@@ -10,6 +10,7 @@ pub mod change_state;
 pub mod create_comment;
 pub mod create_report;
 pub mod escalate_report;
+pub mod get_hacker_report;
 pub mod get_program;
 pub mod get_program_scope_exclusions;
 pub mod get_program_structured_scopes;
@@ -62,12 +63,13 @@ pub enum ToolName {
     GetProgramWeaknesses,
     ListMyReports,
     SearchHacktivity,
+    GetHackerReport,
 }
 
 impl ToolName {
     /// Every tool, in advertised order: upstream's thirteen, then the
     /// hacker-side reads.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::GetReport,
         Self::GetReportCustomFieldValues,
         Self::CreateReport,
@@ -88,6 +90,7 @@ impl ToolName {
         Self::GetProgramWeaknesses,
         Self::ListMyReports,
         Self::SearchHacktivity,
+        Self::GetHackerReport,
     ];
 
     /// Wire name as it appears in `tools/list` and `tools/call`.
@@ -114,6 +117,7 @@ impl ToolName {
             Self::GetProgramWeaknesses => "get_program_weaknesses",
             Self::ListMyReports => "list_my_reports",
             Self::SearchHacktivity => "search_hacktivity",
+            Self::GetHackerReport => "get_hacker_report",
         }
     }
 
@@ -154,7 +158,8 @@ impl ToolName {
             | Self::GetProgramScopeExclusions
             | Self::GetProgramWeaknesses
             | Self::ListMyReports
-            | Self::SearchHacktivity => CredentialClass::Hacker,
+            | Self::SearchHacktivity
+            | Self::GetHackerReport => CredentialClass::Hacker,
         }
     }
 }
@@ -163,7 +168,7 @@ impl ToolName {
 /// descriptions and credential class: the only tools `tools/list` may
 /// advertise, and the authority `dispatch` uses to pick a client (ADR-0008).
 /// Every name `ToolName` knows is wired.
-pub const WIRED: [(ToolName, &str); 20] = [
+pub const WIRED: [(ToolName, &str); 21] = [
     (
         ToolName::GetReport,
         "Fetch a single HackerOne report by ID.",
@@ -256,6 +261,11 @@ pub const WIRED: [(ToolName, &str); 20] = [
          'severity_rating:critical AND disclosed:true'), sorted by sort (default \
          -latest_disclosable_activity_at) and paginated.",
     ),
+    (
+        ToolName::GetHackerReport,
+        "Fetch one of the authenticated hacker's own reports by ID, including \
+         vulnerability information, severity, bounties, activities and attachments.",
+    ),
 ];
 
 /// Route one `tools/call` to the tool that owns its body (ADR-0007), spending
@@ -309,6 +319,7 @@ pub async fn dispatch(
         ToolName::GetProgramWeaknesses => get_program_weaknesses::run(client, args).await,
         ToolName::ListMyReports => list_my_reports::run(client, args).await,
         ToolName::SearchHacktivity => search_hacktivity::run(client, args).await,
+        ToolName::GetHackerReport => get_hacker_report::run(client, args).await,
     }
 }
 

@@ -203,7 +203,8 @@ fn stdio_handshake_advertises_only_the_wired_tools() {
             "get_program_scope_exclusions",
             "get_program_weaknesses",
             "list_my_reports",
-            "search_hacktivity"
+            "search_hacktivity",
+            "get_hacker_report"
         ],
         "tools: {tools}"
     );
@@ -224,7 +225,7 @@ fn stdio_handshake_advertises_only_the_wired_tools() {
 fn stdout_is_jsonrpc_only_and_logs_go_to_stderr() {
     let mut server = Server::start();
     server.handshake();
-    assert_eq!(server.list_tools().as_array().map(Vec::len), Some(20));
+    assert_eq!(server.list_tools().as_array().map(Vec::len), Some(21));
     let (stdout, stderr) = server.finish();
 
     assert!(!stdout.is_empty(), "no stdout frames were produced");
@@ -353,7 +354,7 @@ fn advertised_schemas_never_expose_program_scope_at_any_depth() {
     server.handshake();
     let tools = server.list_tools();
     let tools = tools.as_array().expect("tools array");
-    assert_eq!(tools.len(), 20, "walk the full registry, not a subset");
+    assert_eq!(tools.len(), 21, "walk the full registry, not a subset");
     for tool in tools {
         walk(
             &tool["inputSchema"],
@@ -403,7 +404,7 @@ fn stdout_stays_jsonrpc_only_on_error_paths() {
     server.handshake();
     assert_eq!(
         server.list_tools().as_array().expect("tools").len(),
-        20,
+        21,
         "every tool stays advertised without any credentials"
     );
     let missing = server.call_tool(3, "get_report", json!({"report_id": 7}));
